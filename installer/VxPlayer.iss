@@ -17,7 +17,6 @@ DefaultGroupName=VxPlayer
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=admin
-DefaultTasks=createicon
 UninstallDisplayIcon={app}\VxPlayer.exe
 SetupIconFile=..\src\assets\vxplayer.ico
 WizardStyle=modern
