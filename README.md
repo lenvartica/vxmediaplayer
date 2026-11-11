@@ -50,7 +50,9 @@ requirements.txt    Pinned Python runtime/build dependencies
 
 ## Builds and deployment
 
-Push a `v*` tag to create Windows x64 and Linux x64 build artifacts and a GitHub Release. Windows packages `libvlc.dll`, `libvlccore.dll`, and VLC plugins into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins. The Pages workflow deploys `docs/` from `main`; enable GitHub Pages with the GitHub Actions source in repository settings.
+Every push to `main` builds Windows x64 and Linux x64 artifacts, available from that workflow run in the Actions tab. Push a `v*` tag to additionally publish those builds as GitHub Release assets. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
+
+Before the Pages workflow can deploy, open **Settings → Pages** for the repository and set **Build and deployment → Source** to **GitHub Actions**. The first deployment fails if Pages has not been enabled this way. Once enabled, the workflow deploys `docs/` from `main`.
 
 The site currently points to `Decan-Konnect/VxPlayer`. If the repository is renamed or hosted elsewhere, update the repository links and the `data-repository` value in `docs/index.html`.
 
