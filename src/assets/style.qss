@@ -1,0 +1,90 @@
+QWidget#root {
+    background: #0a0d14;
+    color: #e8edf7;
+    font-family: "Segoe UI", "Inter", sans-serif;
+    font-size: 13px;
+}
+QMenuBar, QMenu {
+    background-color: #111722;
+    color: #dce5f4;
+}
+QMenu::item:selected, QMenuBar::item:selected {
+    background: #1c2a3c;
+    color: #70e4d1;
+}
+QLabel#brand {
+    color: #70e4d1;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 3px;
+}
+QLabel#trackLabel { color: #9daac0; }
+QWidget#videoSurface {
+    background: #030508;
+    border: 1px solid #202b3a;
+    border-radius: 12px;
+}
+QWidget#playlistPanel {
+    background: #101621;
+    border: 1px solid #202b3a;
+    border-radius: 12px;
+}
+QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit {
+    background: #141d2a;
+    border: 1px solid #29374a;
+    border-radius: 7px;
+    padding: 8px;
+    color: #e8edf7;
+    selection-background-color: #31cdb6;
+}
+QListWidget {
+    background: transparent;
+    border: 0;
+    outline: 0;
+    padding: 5px;
+}
+QListWidget::item {
+    padding: 10px 8px;
+    border-radius: 6px;
+    color: #c6d0df;
+}
+QListWidget::item:selected, QListWidget::item:hover {
+    background: #1c2a3c;
+    color: #70e4d1;
+}
+QPushButton {
+    background: #192333;
+    border: 1px solid #2b3a4e;
+    border-radius: 8px;
+    padding: 9px 13px;
+    color: #e8edf7;
+}
+QPushButton:hover { background: #23344a; border-color: #49cdb9; }
+QPushButton:pressed { background: #14202d; }
+QPushButton#primaryButton {
+    background: #1eb49f;
+    border-color: #40d5bf;
+    color: #04120f;
+    font-weight: 700;
+}
+QPushButton#primaryButton:hover { background: #52d8c4; }
+QSlider::groove:horizontal {
+    height: 5px;
+    background: #263345;
+    border-radius: 2px;
+}
+QSlider::sub-page:horizontal { background: #38ceb8; border-radius: 2px; }
+QSlider::handle:horizontal {
+    background: #a4fff0;
+    width: 13px;
+    height: 13px;
+    margin: -5px 0;
+    border-radius: 6px;
+}
+QStatusBar { background: #101621; color: #9daac0; }
+QToolTip {
+    color: #e8edf7;
+    background: #172131;
+    border: 1px solid #38ceb8;
+    padding: 5px;
+}
