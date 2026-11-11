@@ -8,10 +8,18 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
+from engine.player import create_vlc_instance
 from ui.main_window import MainWindow
 
 
 def main() -> int:
+    if "--check-libvlc" in sys.argv:
+        instance = create_vlc_instance()
+        if instance is None:
+            raise RuntimeError("LibVLC initialization smoke test failed.")
+        instance.release()
+        return 0
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     app = QApplication(sys.argv)
     app.setApplicationName("VxPlayer")

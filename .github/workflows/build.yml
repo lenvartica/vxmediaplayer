@@ -49,6 +49,8 @@ jobs:
             -Path "$env:RUNNER_TEMP\VxPlayer.exe", "README.md", "LICENSE" `
             -DestinationPath "$env:RUNNER_TEMP\VxPlayer-windows-x64.zip" `
             -CompressionLevel Optimal
+          & "$env:RUNNER_TEMP\VxPlayer.exe" --check-libvlc
+          if ($LASTEXITCODE -ne 0) { throw "Bundled LibVLC smoke test failed with exit code $LASTEXITCODE" }
       - name: Package Linux executable
         if: runner.os == 'Linux'
         run: |

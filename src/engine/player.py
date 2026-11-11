@@ -21,6 +21,20 @@ SUPPORTED_MEDIA = {
 SUBTITLE_SUFFIXES = {".srt", ".vtt", ".ass", ".ssa", ".sub"}
 
 
+def create_vlc_instance() -> Optional[vlc.Instance]:
+    return vlc.Instance(
+        "--no-video-title-show",
+        "--quiet",
+        "--audio-filter=compressor,scaletempo",
+        "--compressor-threshold=-10.0",
+        "--compressor-ratio=8.0",
+        "--compressor-attack=25.0",
+        "--compressor-release=100.0",
+        "--compressor-knee=2.5",
+        "--compressor-makeup-gain=2.0",
+    )
+
+
 class Player(QObject):
     """Qt-signalling wrapper around a LibVLC media player."""
 
@@ -32,19 +46,11 @@ class Player(QObject):
 
     def __init__(self, video_widget: object, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._instance = vlc.Instance(
-            "--no-video-title-show",
-            "--quiet",
-            "--audio-filter=compressor,scaletempo",
-            "--compressor-threshold=-10.0",
-            "--compressor-ratio=8.0",
-            "--compressor-attack=25.0",
-            "--compressor-release=100.0",
-            "--compressor-knee=2.5",
-            "--compressor-makeup-gain=2.0",
-        )
+        self._instance = create_vlc_instance()
         if self._instance is None:
-            raise RuntimeError("LibVLC could not be initialized. Install VLC/libvlc.")
+            raise RuntimeError(
+                "LibVLC could not be initialized. Verify that its DLLs and plugins are available."
+            )
         self._player = self._instance.media_player_new()
         self.equalizer = Equalizer(self._player)
         self._video_widget = video_widget
