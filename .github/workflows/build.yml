@@ -45,12 +45,21 @@ jobs:
             --runtime-hook src/vlc_runtime_hook.py `
             src/main.py
           Copy-Item dist\VxPlayer.exe "$env:RUNNER_TEMP\VxPlayer.exe"
+          Compress-Archive `
+            -Path "$env:RUNNER_TEMP\VxPlayer.exe", "README.md", "LICENSE" `
+            -DestinationPath "$env:RUNNER_TEMP\VxPlayer-windows-x64.zip" `
+            -CompressionLevel Optimal
       - name: Package Linux executable
         if: runner.os == 'Linux'
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed \
             --name VxPlayer src/main.py
           cp dist/VxPlayer "$RUNNER_TEMP/VxPlayer-linux-x64"
+          mkdir -p "$RUNNER_TEMP/vxplayer-linux-package"
+          cp dist/VxPlayer "$RUNNER_TEMP/vxplayer-linux-package/VxPlayer"
+          cp README.md LICENSE "$RUNNER_TEMP/vxplayer-linux-package/"
+          tar -czf "$RUNNER_TEMP/VxPlayer-linux-x64.tar.gz" \
+            -C "$RUNNER_TEMP" vxplayer-linux-package
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:

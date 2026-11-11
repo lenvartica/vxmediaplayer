@@ -50,7 +50,7 @@ requirements.txt    Pinned Python runtime/build dependencies
 
 ## Builds and deployment
 
-Every push to `main` builds Windows x64 and Linux x64 artifacts, available from that workflow run in the Actions tab. Push a `v*` tag to additionally publish those builds as GitHub Release assets. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
+Every push to `main` builds Windows x64 and Linux x64 artifacts, available from that workflow run in the Actions tab. Push a `v*` tag to additionally publish the standalone Windows executable and ZIP package, plus the Linux executable and `.tar.gz` package, as GitHub Release assets. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
 
 Before the Pages workflow can deploy, open **Settings → Pages** for the repository and set **Build and deployment → Source** to **GitHub Actions**. The first deployment fails if Pages has not been enabled this way. After enabling it, run **Deploy GitHub Pages** from the Actions tab; later `docs/` changes deploy automatically.
 
