@@ -37,11 +37,14 @@ jobs:
         shell: pwsh
         run: |
           choco install vlc --no-progress -y
+          choco install innosetup --no-progress -y
           $vlc = "${env:ProgramFiles}\VideoLAN\VLC"
           if (-not (Test-Path "$vlc\libvlc.dll")) { throw "LibVLC was not installed at $vlc" }
           python -m PyInstaller --noconfirm --clean --onefile --windowed `
             --name VxPlayer `
+            --icon src/assets/vxplayer.ico `
             --add-data "$vlc;vlc" `
+            --add-data "src/assets;assets" `
             --runtime-hook src/vlc_runtime_hook.py `
             src/main.py
           Copy-Item dist\VxPlayer.exe "$env:RUNNER_TEMP\VxPlayer.exe"
@@ -51,11 +54,42 @@ jobs:
             -CompressionLevel Optimal
           & "$env:RUNNER_TEMP\VxPlayer.exe" --check-libvlc
           if ($LASTEXITCODE -ne 0) { throw "Bundled LibVLC smoke test failed with exit code $LASTEXITCODE" }
+          $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          if ($isccCommand) {
+            $iscc = $isccCommand.Source
+          } else {
+            $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+          }
+          if (-not (Test-Path $iscc)) { throw "Inno Setup compiler was not found: $iscc" }
+          if ($env:GITHUB_REF_NAME -match '^v(\d+\.\d+\.\d+)$') {
+            $appVersion = $Matches[1]
+          } else {
+            $appVersion = "0.0.$env:GITHUB_RUN_NUMBER"
+          }
+          Push-Location installer
+          try {
+            & $iscc "/DAppVersion=$appVersion" "/O$env:RUNNER_TEMP" "VxPlayer.iss"
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          $installerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup.exe"
+          $installDir = Join-Path $env:RUNNER_TEMP "install-smoke"
+          & $installerPath /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$installDir"
+          if ($LASTEXITCODE -ne 0) { throw "Installer smoke test failed with exit code $LASTEXITCODE" }
+          $installedExe = Join-Path $installDir "VxPlayer.exe"
+          if (-not (Test-Path $installedExe)) { throw "Installer did not install VxPlayer.exe" }
+          & $installedExe --check-libvlc
+          if ($LASTEXITCODE -ne 0) { throw "Installed VxPlayer LibVLC smoke test failed with exit code $LASTEXITCODE" }
+          & (Join-Path $installDir "unins000.exe") /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+          if ($LASTEXITCODE -ne 0) { throw "Installer uninstall smoke test failed with exit code $LASTEXITCODE" }
       - name: Package Linux executable
         if: runner.os == 'Linux'
         run: |
           python -m PyInstaller --noconfirm --clean --onefile --windowed \
-            --name VxPlayer src/main.py
+            --name VxPlayer \
+            --add-data "src/assets:assets" \
+            src/main.py
           cp dist/VxPlayer "$RUNNER_TEMP/VxPlayer-linux-x64"
           mkdir -p "$RUNNER_TEMP/vxplayer-linux-package"
           cp dist/VxPlayer "$RUNNER_TEMP/vxplayer-linux-package/VxPlayer"

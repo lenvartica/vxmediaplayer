@@ -16,6 +16,8 @@
     })
     .then((release) => {
       const windowsAsset = release.assets.find((asset) =>
+        asset.name.toLowerCase() === "vxplayer-setup.exe"
+      ) || release.assets.find((asset) =>
         asset.name.toLowerCase().includes("vxplayer") &&
         asset.name.toLowerCase().endsWith(".exe")
       );

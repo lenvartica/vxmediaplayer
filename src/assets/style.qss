@@ -18,6 +18,7 @@ QLabel#brand {
     font-weight: 800;
     letter-spacing: 3px;
 }
+QLabel#brandIcon { padding: 2px; }
 QLabel#trackLabel { color: #9daac0; }
 QWidget#videoSurface {
     background: #030508;
@@ -68,6 +69,16 @@ QPushButton#primaryButton {
     font-weight: 700;
 }
 QPushButton#primaryButton:hover { background: #52d8c4; }
+QPushButton#transportButton {
+    min-height: 36px;
+    padding: 7px 10px;
+    background: #141d2a;
+    border-color: #29374a;
+}
+QPushButton#transportButton:hover {
+    background: #1c2a3c;
+    border-color: #49cdb9;
+}
 QSlider::groove:horizontal {
     height: 5px;
     background: #263345;

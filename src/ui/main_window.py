@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 import logging
 import time
+from functools import lru_cache
 from pathlib import Path
 
 import vlc
-from PyQt6.QtCore import Qt, QSettings
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import QPoint, QSize, Qt, QSettings, pyqtSignal
+from PyQt6.QtGui import QAction, QIcon, QKeySequence, QMouseEvent, QPainter, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -34,8 +37,62 @@ from ui.playlist_widget import PlaylistWidget
 from ui.settings_dialog import SettingsDialog
 
 LOGGER = logging.getLogger(__name__)
+ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
 MEDIA_FILTER = "Media files (" + " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_MEDIA)) + ")"
 EQUALIZER_BANDS = ("60", "170", "310", "600", "1k", "3k", "6k", "12k", "14k", "16k")
+
+
+@lru_cache(maxsize=None)
+def _icon(name: str) -> QIcon:
+    return QIcon(_svg_pixmap(ASSET_DIR / "icons" / f"{name}.svg", 48))
+
+
+def _svg_pixmap(path: Path, size: int) -> QPixmap:
+    renderer = QSvgRenderer(str(path))
+    if not renderer.isValid():
+        raise FileNotFoundError(f"Could not load VxPlayer artwork: {path}")
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+    return pixmap
+
+
+class VideoSurface(QWidget):
+    interaction = pyqtSignal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._press_position: QPoint | None = None
+        self.setObjectName("videoSurface")
+        self.setMinimumSize(480, 300)
+        self.setToolTip("Click the center to play or pause; click either edge to skip 10 seconds.")
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._press_position = event.position().toPoint()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._press_position is not None
+            and (event.position().toPoint() - self._press_position).manhattanLength()
+            <= QApplication.startDragDistance()
+        ):
+            x = event.position().x()
+            edge = self.width() * 0.18
+            if x < edge:
+                self.interaction.emit("backward")
+            elif x >= self.width() - edge:
+                self.interaction.emit("forward")
+            else:
+                self.interaction.emit("toggle")
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+        self._press_position = None
 
 
 def _read_string_list_setting(settings: QSettings, key: str) -> list[str]:
@@ -55,9 +112,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = QSettings("Decan Konnect", "VxPlayer")
         self.setWindowTitle("VxPlayer")
+        self.setWindowIcon(QIcon(_svg_pixmap(ASSET_DIR / "vxplayer.svg", 128)))
         self.resize(1280, 800)
         self.setMinimumSize(820, 540)
         self.setAcceptDrops(True)
+        self._last_unmuted_volume = 100
         self._pip = False
         self._normal_geometry = None
         self._last_position_update = 0.0
@@ -86,10 +145,22 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(root)
         outer.setContentsMargins(18, 14, 18, 16)
         header = QHBoxLayout()
+        brand_icon = QLabel()
+        brand_icon.setObjectName("brandIcon")
+        brand_icon.setAccessibleName("VxPlayer logo")
+        brand_icon.setPixmap(
+            _svg_pixmap(ASSET_DIR / "vxplayer.svg", 64).scaled(
+                34,
+                34,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
         brand = QLabel("VXPLAYER")
         brand.setObjectName("brand")
         self.track_label = QLabel("Ready when you are")
         self.track_label.setObjectName("trackLabel")
+        header.addWidget(brand_icon)
         header.addWidget(brand)
         header.addSpacing(20)
         header.addWidget(self.track_label, 1)
@@ -101,9 +172,7 @@ class MainWindow(QMainWindow):
         outer.addLayout(header)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.video_surface = QWidget()
-        self.video_surface.setObjectName("videoSurface")
-        self.video_surface.setMinimumSize(480, 300)
+        self.video_surface = VideoSurface()
         self.playlist = PlaylistWidget()
         self.playlist.setMinimumWidth(250)
         splitter.addWidget(self.video_surface)
@@ -123,10 +192,24 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         self.previous_button = QPushButton("Previous")
+        self.previous_button.setIcon(_icon("previous"))
+        self.previous_button.setToolTip("Previous item (Ctrl+Left)")
+        self.seek_back_button = QPushButton("-10")
+        self.seek_back_button.setIcon(_icon("seek-backward"))
+        self.seek_back_button.setToolTip("Back 10 seconds (Left)")
         self.play_button = QPushButton("Play")
+        self.play_button.setIcon(_icon("play"))
+        self.play_button.setToolTip("Play or pause (Space)")
         self.play_button.setObjectName("primaryButton")
         self.next_button = QPushButton("Next")
+        self.next_button.setIcon(_icon("next"))
+        self.next_button.setToolTip("Next item (Ctrl+Right)")
+        self.seek_forward_button = QPushButton("+10")
+        self.seek_forward_button.setIcon(_icon("seek-forward"))
+        self.seek_forward_button.setToolTip("Forward 10 seconds (Right)")
         self.stop_button = QPushButton("Stop")
+        self.stop_button.setIcon(_icon("stop"))
+        self.stop_button.setToolTip("Stop playback (S)")
         self.speed_combo = QComboBox()
         self.speed_combo.addItems(["0.25x", "0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "2.0x", "3.0x", "4.0x"])
         self.speed_combo.setCurrentText("1.0x")
@@ -141,16 +224,50 @@ class MainWindow(QMainWindow):
         self.volume_slider.setToolTip(
             "0–300% output gain. Start low; high volume can damage hearing or distort audio."
         )
+        self.mute_button = QPushButton()
+        self.mute_button.setIcon(_icon("volume"))
+        self.mute_button.setToolTip("Mute or restore volume (M)")
+        self.mute_button.setAccessibleName("Mute")
         self.pip_button = QPushButton("PiP")
+        for button in (
+            self.previous_button,
+            self.seek_back_button,
+            self.seek_forward_button,
+            self.next_button,
+            self.stop_button,
+            self.mute_button,
+        ):
+            button.setObjectName("transportButton")
+            button.setIconSize(QSize(18, 18))
+        self.play_button.setIconSize(QSize(20, 20))
         for widget in (
-            self.previous_button, self.play_button, self.next_button, self.stop_button,
-            self.speed_combo, self.equalizer_combo, self.volume_label,
-            self.equalizer_button, self.volume_slider, self.pip_button,
+            self.previous_button,
+            self.seek_back_button,
+            self.play_button,
+            self.seek_forward_button,
+            self.next_button,
+            self.stop_button,
+            self.speed_combo,
+            self.pip_button,
         ):
             controls.addWidget(widget)
         outer.addLayout(controls)
+        audio_controls = QHBoxLayout()
+        for widget in (
+            self.equalizer_combo,
+            self.equalizer_button,
+            self.mute_button,
+            self.volume_label,
+            self.volume_slider,
+        ):
+            audio_controls.addWidget(widget)
+        audio_controls.addStretch(1)
+        outer.addLayout(audio_controls)
         self.setCentralWidget(root)
         self.setStatusBar(QStatusBar())
+        self.statusBar().showMessage(
+            "Click the video center to play or pause; click either edge to skip 10 seconds."
+        )
         self.open_button.clicked.connect(self.open_files)
         self.subtitle_button.clicked.connect(self.open_subtitle)
         self.playlist.add_button.clicked.connect(self.open_files)
@@ -159,6 +276,8 @@ class MainWindow(QMainWindow):
         self.playlist.play_requested.connect(self.play_path)
         self.playlist.files_dropped.connect(self._queue_dropped_paths)
         self.play_button.clicked.connect(self._toggle_play)
+        self.seek_back_button.clicked.connect(lambda: self._skip(-10_000))
+        self.seek_forward_button.clicked.connect(lambda: self._skip(10_000))
         self.stop_button.clicked.connect(self._stop)
         self.previous_button.clicked.connect(lambda: self._step_queue(-1))
         self.next_button.clicked.connect(lambda: self._step_queue(1))
@@ -169,7 +288,9 @@ class MainWindow(QMainWindow):
         self.equalizer_combo.currentTextChanged.connect(self._set_equalizer)
         self.equalizer_button.clicked.connect(self.equalizer_dialog_open)
         self.pip_button.clicked.connect(self._toggle_pip)
+        self.mute_button.clicked.connect(self._toggle_mute)
         self.position_slider.sliderReleased.connect(self._seek)
+        self.video_surface.interaction.connect(self._handle_surface_interaction)
 
     def _connect_player(self) -> None:
         self.player.position_changed.connect(self._update_position)
@@ -187,6 +308,42 @@ class MainWindow(QMainWindow):
         self.play_action = QAction("Play / pause", self)
         self.play_action.setShortcut(QKeySequence(self.settings.value("shortcut_play", "Space")))
         self.play_action.triggered.connect(self._toggle_play)
+        self.seek_back_action = QAction("Back 10 seconds", self)
+        self.seek_back_action.setShortcut(
+            QKeySequence(self.settings.value("shortcut_seek_back", "Left"))
+        )
+        self.seek_back_action.triggered.connect(lambda: self._skip(-10_000))
+        self.seek_forward_action = QAction("Forward 10 seconds", self)
+        self.seek_forward_action.setShortcut(
+            QKeySequence(self.settings.value("shortcut_seek_forward", "Right"))
+        )
+        self.seek_forward_action.triggered.connect(lambda: self._skip(10_000))
+        self.mute_action = QAction("Mute / unmute", self)
+        self.mute_action.setShortcut(QKeySequence(self.settings.value("shortcut_mute", "M")))
+        self.mute_action.triggered.connect(self._toggle_mute)
+        self.fullscreen_action = QAction("Toggle fullscreen", self)
+        self.fullscreen_action.setShortcut(
+            QKeySequence(self.settings.value("shortcut_fullscreen", "F"))
+        )
+        self.fullscreen_action.triggered.connect(self._toggle_fullscreen)
+        self.stop_action = QAction("Stop playback", self)
+        self.stop_action.setShortcut(QKeySequence(self.settings.value("shortcut_stop", "S")))
+        self.stop_action.triggered.connect(self._stop)
+        self.previous_action = QAction("Previous queue item", self)
+        self.previous_action.setShortcut(
+            QKeySequence(self.settings.value("shortcut_previous", "Ctrl+Left"))
+        )
+        self.previous_action.triggered.connect(lambda: self._step_queue(-1))
+        self.next_action = QAction("Next queue item", self)
+        self.next_action.setShortcut(
+            QKeySequence(self.settings.value("shortcut_next", "Ctrl+Right"))
+        )
+        self.next_action.triggered.connect(lambda: self._step_queue(1))
+        self.exit_fullscreen_action = QAction("Exit fullscreen", self)
+        self.exit_fullscreen_action.setShortcut(
+            QKeySequence(self.settings.value("shortcut_exit_fullscreen", "Escape"))
+        )
+        self.exit_fullscreen_action.triggered.connect(self._exit_fullscreen)
         self.settings_action = QAction("Settings...", self)
         self.settings_action.triggered.connect(self.open_settings)
         self.save_playlist_action = QAction("Save playlist...", self)
@@ -195,8 +352,16 @@ class MainWindow(QMainWindow):
         self.load_playlist_action.triggered.connect(self.load_playlist)
         self.recent_menu_action = QAction("Clear recent files", self)
         self.recent_menu_action.triggered.connect(self._clear_recent)
-        self.addAction(self.open_action)
-        self.addAction(self.play_action)
+        self.shortcut_help_action = QAction("Keyboard shortcuts", self)
+        self.shortcut_help_action.triggered.connect(self._show_shortcuts)
+        for action in (
+            self.open_action, self.play_action, self.seek_back_action,
+            self.seek_forward_action, self.mute_action, self.fullscreen_action,
+            self.stop_action, self.previous_action, self.next_action,
+            self.exit_fullscreen_action,
+        ):
+            action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
+            self.addAction(action)
 
     def _create_menus(self) -> None:
         file_menu = self.menuBar().addMenu("File")
@@ -207,6 +372,8 @@ class MainWindow(QMainWindow):
         self.recent_menu = file_menu.addMenu("Recent files")
         self._refresh_recent_menu()
         self.menuBar().addAction(self.recent_menu_action)
+        help_menu = self.menuBar().addMenu("Help")
+        help_menu.addAction(self.shortcut_help_action)
 
     def open_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(self, "Open media", "", MEDIA_FILTER)
@@ -257,9 +424,61 @@ class MainWindow(QMainWindow):
     def _stop(self) -> None:
         self.player.stop()
 
+    def _skip(self, offset_ms: int) -> None:
+        self.player.seek_by(offset_ms)
+        direction = "forward" if offset_ms > 0 else "back"
+        self.statusBar().showMessage(f"Skipped 10 seconds {direction}.", 1400)
+
+    def _handle_surface_interaction(self, action: str) -> None:
+        if action == "backward":
+            self._skip(-10_000)
+        elif action == "forward":
+            self._skip(10_000)
+        else:
+            self._toggle_play()
+
+    def _toggle_mute(self) -> None:
+        if self.volume_slider.value() > 0:
+            self._last_unmuted_volume = self.volume_slider.value()
+            self.volume_slider.setValue(0)
+        else:
+            self.volume_slider.setValue(self._last_unmuted_volume or 100)
+
+    def _toggle_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
+
+    def _exit_fullscreen(self) -> None:
+        if self.isFullScreen():
+            self.showNormal()
+
+    def _show_shortcuts(self) -> None:
+        def shortcut(action: QAction) -> str:
+            return action.shortcut().toString() or "Not set"
+
+        QMessageBox.information(
+            self,
+            "Keyboard shortcuts",
+            f"{shortcut(self.play_action)}  Play / pause\n"
+            f"{shortcut(self.seek_back_action)} / {shortcut(self.seek_forward_action)}"
+            "  Skip 10 seconds\n"
+            f"{shortcut(self.previous_action)} / {shortcut(self.next_action)}"
+            "  Previous / next queue item\n"
+            f"{shortcut(self.mute_action)}  Mute / restore volume\n"
+            f"{shortcut(self.fullscreen_action)}  Toggle fullscreen · Esc  Exit fullscreen\n"
+            f"{shortcut(self.stop_action)}  Stop playback\n"
+            f"{shortcut(self.open_action)}  Open media",
+        )
+
     def _set_volume(self, value: int) -> None:
         self.player.set_volume(value)
         self.volume_label.setText(f"{value}%")
+        self.mute_button.setIcon(_icon("mute" if value == 0 else "volume"))
+        self.mute_button.setAccessibleName("Unmute" if value == 0 else "Mute")
+        if value > 0:
+            self._last_unmuted_volume = value
 
     def _set_rate(self, rate: float) -> None:
         self.player.set_rate(rate)
@@ -286,7 +505,13 @@ class MainWindow(QMainWindow):
             self._last_position_update = now
 
     def _update_state(self, state: str) -> None:
-        self.play_button.setText("Pause" if state == "playing" else "Play")
+        playing = state == "playing"
+        self.play_button.setText("Pause" if playing else "Play")
+        self.play_button.setIcon(_icon("pause" if playing else "play"))
+        self.play_button.setToolTip(
+            "Pause playback (Space)" if playing else "Play or pause (Space)"
+        )
+        self.play_button.setAccessibleName("Pause" if playing else "Play")
         if (
             state == "ended"
             and self._last_player_state != "ended"
@@ -390,8 +615,20 @@ class MainWindow(QMainWindow):
         return devices
 
     def _refresh_shortcuts(self) -> None:
-        self.open_action.setShortcut(QKeySequence(self.settings.value("shortcut_open", "Ctrl+O")))
-        self.play_action.setShortcut(QKeySequence(self.settings.value("shortcut_play", "Space")))
+        settings = (
+            (self.open_action, "shortcut_open", "Ctrl+O"),
+            (self.play_action, "shortcut_play", "Space"),
+            (self.seek_back_action, "shortcut_seek_back", "Left"),
+            (self.seek_forward_action, "shortcut_seek_forward", "Right"),
+            (self.mute_action, "shortcut_mute", "M"),
+            (self.fullscreen_action, "shortcut_fullscreen", "F"),
+            (self.stop_action, "shortcut_stop", "S"),
+            (self.previous_action, "shortcut_previous", "Ctrl+Left"),
+            (self.next_action, "shortcut_next", "Ctrl+Right"),
+            (self.exit_fullscreen_action, "shortcut_exit_fullscreen", "Escape"),
+        )
+        for action, key, default in settings:
+            action.setShortcut(QKeySequence(self.settings.value(key, default)))
 
     def _toggle_pip(self) -> None:
         if not self._pip:
@@ -439,6 +676,8 @@ class MainWindow(QMainWindow):
         queue = _read_string_list_setting(self.settings, "queue")
         self.playlist.set_paths(queue)
         self.volume_slider.setValue(int(self.settings.value("volume", 100)))
+        if self.volume_slider.value() > 0:
+            self._last_unmuted_volume = self.volume_slider.value()
         preset = str(self.settings.value("equalizer_preset", "Flat"))
         if self.equalizer_combo.findText(preset) >= 0:
             self.equalizer_combo.setCurrentText(preset)

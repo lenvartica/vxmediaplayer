@@ -22,6 +22,10 @@
 
 Python 3.11 or newer and a LibVLC runtime are required. The Windows release workflow bundles LibVLC. Linux builds use system LibVLC.
 
+### Windows installer
+
+Download and run `VxPlayer-Setup.exe` from the [latest release](https://github.com/lenvartica/vxmediaplayer/releases/latest). The system installer places VxPlayer under Program Files, adds a Start menu shortcut, offers a desktop shortcut, and registers a Windows uninstaller. Windows may ask for administrator approval. The standalone `VxPlayer.exe` remains available for portable use.
+
 ```powershell
 python -m pip install -r requirements.txt
 python src/main.py
@@ -32,16 +36,19 @@ On Linux, install your distribution's VLC/LibVLC packages before launching. If t
 ## Controls
 
 - **Open media** or `Ctrl+O`: choose files; drag files onto the player to add or play them.
-- **Space**: play or pause.
+- Click the center of the video to play or pause; click the left or right edge to seek back or forward by 10 seconds.
+- **Space**: play or pause; **Left / Right**: seek 10 seconds; **Ctrl+Left / Ctrl+Right**: previous / next queue item.
+- **M**: mute / restore volume; **F**: fullscreen; **Esc**: leave fullscreen; **S**: stop.
 - Double-click an item in the queue to play it. Queue items can be reordered, filtered, removed, and saved as `.m3u8`.
 - Use the speed and equalizer menus, volume slider, or subtitle button for playback adjustments.
-- Settings provides audio device, subtitle delay/font-size preference, and keyboard shortcut configuration. Shortcuts apply while VxPlayer is active; OS-wide global hotkeys are not implemented.
+- Settings provides audio device, subtitle delay/font-size preference, and configurable playback, seeking, queue, stop, mute, and fullscreen shortcuts. Shortcuts apply while VxPlayer is active; OS-wide global hotkeys are not implemented.
 
 ## Project layout
 
 ```text
-.github/workflows/  Windows/Linux build and GitHub Pages deployment
-src/assets/         Dark-mode QSS theme
+.github/workflows/  Windows/Linux build, installer, and GitHub Pages deployment
+installer/          Inno Setup system installer definition
+src/assets/         Logo, icons, and dark-mode QSS theme
 src/engine/         LibVLC wrapper and equalizer
 src/ui/             Player, queue, and settings interfaces
 docs/               GitHub Pages product site
@@ -50,7 +57,7 @@ requirements.txt    Pinned Python runtime/build dependencies
 
 ## Builds and deployment
 
-Every push to `main` builds Windows x64 and Linux x64 artifacts, available from that workflow run in the Actions tab. Push a `v*` tag to additionally publish the standalone Windows executable and ZIP package, plus the Linux executable and `.tar.gz` package, as GitHub Release assets. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
+Every push to `main` builds Windows x64 and Linux x64 artifacts, available from that workflow run in the Actions tab. Push a `v*` tag to additionally publish the Windows installer, portable executable and ZIP, plus the Linux executable and `.tar.gz` package, as GitHub Release assets. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
 
 Before the Pages workflow can deploy, open **Settings → Pages** for the repository and set **Build and deployment → Source** to **GitHub Actions**. The first deployment fails if Pages has not been enabled this way. After enabling it, run **Deploy GitHub Pages** from the Actions tab; later `docs/` changes deploy automatically.
 

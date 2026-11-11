@@ -15,6 +15,19 @@ from PyQt6.QtWidgets import (
 
 
 class SettingsDialog(QDialog):
+    SHORTCUTS = (
+        ("play", "Play / pause", "Space"),
+        ("open", "Open media", "Ctrl+O"),
+        ("seek_back", "Skip back 10 seconds", "Left"),
+        ("seek_forward", "Skip forward 10 seconds", "Right"),
+        ("mute", "Mute / unmute", "M"),
+        ("fullscreen", "Toggle fullscreen", "F"),
+        ("exit_fullscreen", "Exit fullscreen", "Escape"),
+        ("stop", "Stop playback", "S"),
+        ("previous", "Previous queue item", "Ctrl+Left"),
+        ("next", "Next queue item", "Ctrl+Right"),
+    )
+
     def __init__(self, settings: object, audio_devices: list[tuple[str, str]], parent=None):
         super().__init__(parent)
         self.setWindowTitle("VxPlayer Settings")
@@ -39,18 +52,17 @@ class SettingsDialog(QDialog):
         if index >= 0:
             self.audio_device.setCurrentIndex(index)
 
-        self.play_shortcut = QKeySequenceEdit(
-            QKeySequence(settings.value("shortcut_play", "Space"))
-        )
-        self.open_shortcut = QKeySequenceEdit(
-            QKeySequence(settings.value("shortcut_open", "Ctrl+O"))
-        )
         form = QFormLayout()
         form.addRow("Default subtitle delay", self.subtitle_delay)
         form.addRow("Subtitle font size", self.subtitle_size)
         form.addRow("Audio output", self.audio_device)
-        form.addRow("Play / pause shortcut", self.play_shortcut)
-        form.addRow("Open media shortcut", self.open_shortcut)
+        self.shortcut_editors: dict[str, QKeySequenceEdit] = {}
+        for key, label, default in self.SHORTCUTS:
+            editor = QKeySequenceEdit(
+                QKeySequence(settings.value(f"shortcut_{key}", default))
+            )
+            self.shortcut_editors[key] = editor
+            form.addRow(f"{label} shortcut", editor)
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
         )
@@ -64,6 +76,8 @@ class SettingsDialog(QDialog):
         self.settings.setValue("subtitle_delay", self.subtitle_delay.value())
         self.settings.setValue("subtitle_size", self.subtitle_size.value())
         self.settings.setValue("audio_device", self.audio_device.currentData())
-        self.settings.setValue("shortcut_play", self.play_shortcut.keySequence().toString())
-        self.settings.setValue("shortcut_open", self.open_shortcut.keySequence().toString())
+        for key, editor in self.shortcut_editors.items():
+            self.settings.setValue(
+                f"shortcut_{key}", editor.keySequence().toString()
+            )
         super().accept()

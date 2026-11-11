@@ -134,6 +134,14 @@ class Player(QObject):
             if result == -1:
                 LOGGER.debug("LibVLC rejected seek to %s ms", position_ms)
 
+    def seek_by(self, offset_ms: int) -> None:
+        current = max(0, self._player.get_time())
+        target = max(0, current + int(offset_ms))
+        length = self.duration_ms
+        if length > 0:
+            target = min(target, length)
+        self.seek(target)
+
     def set_volume(self, volume: int) -> None:
         """Set output gain from 0 to 300 percent, preserving the full requested range."""
         value = max(0, min(300, int(volume)))
