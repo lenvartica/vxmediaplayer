@@ -2,8 +2,8 @@
 
 **A modern desktop media player by Decan Konnect.** VxPlayer combines a PyQt6 interface with LibVLC playback for a broad range of audio and video formats.
 
-[![Build and release](https://github.com/Decan-Konnect/VxPlayer/actions/workflows/build.yml/badge.svg)](https://github.com/Decan-Konnect/VxPlayer/actions/workflows/build.yml)
-[![Deploy GitHub Pages](https://github.com/Decan-Konnect/VxPlayer/actions/workflows/pages.yml/badge.svg)](https://github.com/Decan-Konnect/VxPlayer/actions/workflows/pages.yml)
+[![Build and release](https://github.com/lenvartica/vxmediaplayer/actions/workflows/build.yml/badge.svg)](https://github.com/lenvartica/vxmediaplayer/actions/workflows/build.yml)
+[![Deploy GitHub Pages](https://github.com/lenvartica/vxmediaplayer/actions/workflows/pages.yml/badge.svg)](https://github.com/lenvartica/vxmediaplayer/actions/workflows/pages.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -52,9 +52,9 @@ requirements.txt    Pinned Python runtime/build dependencies
 
 Every push to `main` builds Windows x64 and Linux x64 artifacts, available from that workflow run in the Actions tab. Push a `v*` tag to additionally publish those builds as GitHub Release assets. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
 
-Before the Pages workflow can deploy, open **Settings → Pages** for the repository and set **Build and deployment → Source** to **GitHub Actions**. The first deployment fails if Pages has not been enabled this way. Once enabled, the workflow deploys `docs/` from `main`.
+Before the Pages workflow can deploy, open **Settings → Pages** for the repository and set **Build and deployment → Source** to **GitHub Actions**. The first deployment fails if Pages has not been enabled this way. After enabling it, run **Deploy GitHub Pages** from the Actions tab; later `docs/` changes deploy automatically.
 
-The site currently points to `Decan-Konnect/VxPlayer`. If the repository is renamed or hosted elsewhere, update the repository links and the `data-repository` value in `docs/index.html`.
+The landing page and badges point to `lenvartica/vxmediaplayer`. Update those links and the `data-repository` value in `docs/index.html` if the repository is renamed or moved.
 
 ## Known platform constraints
 

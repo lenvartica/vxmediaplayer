@@ -1,6 +1,6 @@
 (() => {
   const root = document.documentElement;
-  const repository = root.dataset.repository || "Decan-Konnect/VxPlayer";
+  const repository = root.dataset.repository || "lenvartica/vxmediaplayer";
   const releaseUrl = `https://api.github.com/repos/${repository}/releases/latest`;
   const latestPage = `https://github.com/${repository}/releases/latest`;
   const note = document.querySelector("#release-note");
