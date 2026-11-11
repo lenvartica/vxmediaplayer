@@ -75,14 +75,28 @@ jobs:
           }
           $installerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup.exe"
           $installDir = Join-Path $env:RUNNER_TEMP "install-smoke"
-          & $installerPath /VERYSILENT /SUPPRESSMSGBOXES /NORESTART "/DIR=$installDir"
-          if ($LASTEXITCODE -ne 0) { throw "Installer smoke test failed with exit code $LASTEXITCODE" }
+          $installerLog = Join-Path $env:RUNNER_TEMP "vxplayer-installer-smoke.log"
+          $installerArgs = @(
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/DIR=`"$installDir`"",
+            "/LOG=`"$installerLog`""
+          )
+          $installerProcess = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -Wait -PassThru
+          if ($installerProcess.ExitCode -ne 0) { throw "Installer smoke test failed with exit code $($installerProcess.ExitCode)" }
           $installedExe = Join-Path $installDir "VxPlayer.exe"
-          if (-not (Test-Path $installedExe)) { throw "Installer did not install VxPlayer.exe" }
+          if (-not (Test-Path $installedExe)) {
+            Get-Content $installerLog -Tail 80
+            throw "Installer did not install VxPlayer.exe into $installDir"
+          }
           & $installedExe --check-libvlc
           if ($LASTEXITCODE -ne 0) { throw "Installed VxPlayer LibVLC smoke test failed with exit code $LASTEXITCODE" }
-          & (Join-Path $installDir "unins000.exe") /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-          if ($LASTEXITCODE -ne 0) { throw "Installer uninstall smoke test failed with exit code $LASTEXITCODE" }
+          $uninstaller = Start-Process `
+            -FilePath (Join-Path $installDir "unins000.exe") `
+            -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
+            -Wait -PassThru
+          if ($uninstaller.ExitCode -ne 0) { throw "Installer uninstall smoke test failed with exit code $($uninstaller.ExitCode)" }
       - name: Package Linux executable
         if: runner.os == 'Linux'
         run: |
