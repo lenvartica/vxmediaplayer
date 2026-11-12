@@ -94,8 +94,11 @@ jobs:
           $payloadPath = Join-Path $env:RUNNER_TEMP "VxPlayer-windows-x64.zip"
           $payloadHash = (Get-FileHash $payloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $payloadSize = (Get-Item $payloadPath).Length
-          & "$env:RUNNER_TEMP\VxPlayer.exe" --check-libvlc
-          if ($LASTEXITCODE -ne 0) { throw "Bundled LibVLC smoke test failed with exit code $LASTEXITCODE" }
+          $bundleCheck = Start-Process `
+            -FilePath (Join-Path $env:RUNNER_TEMP "VxPlayer.exe") `
+            -ArgumentList @("--check-libvlc") `
+            -Wait -PassThru
+          if ($bundleCheck.ExitCode -ne 0) { throw "Bundled LibVLC smoke test failed with exit code $($bundleCheck.ExitCode)" }
           $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
           if ($isccCommand) {
             $iscc = $isccCommand.Source
@@ -129,8 +132,11 @@ jobs:
             Get-Content $installerLog -Tail 80
             throw "Installer did not install VxPlayer.exe into $installDir"
           }
-          & $installedExe --check-libvlc
-          if ($LASTEXITCODE -ne 0) { throw "Installed VxPlayer LibVLC smoke test failed with exit code $LASTEXITCODE" }
+          $installedCheck = Start-Process `
+            -FilePath $installedExe `
+            -ArgumentList @("--check-libvlc") `
+            -Wait -PassThru
+          if ($installedCheck.ExitCode -ne 0) { throw "Installed VxPlayer LibVLC smoke test failed with exit code $($installedCheck.ExitCode)" }
           $uninstaller = Start-Process `
             -FilePath (Join-Path $installDir "unins000.exe") `
             -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
@@ -228,8 +234,11 @@ jobs:
             if ($installerProcess.ExitCode -ne 0) { throw "Online installer failed with exit code $($installerProcess.ExitCode)" }
             $installedExe = Join-Path $installDir "VxPlayer.exe"
             if (-not (Test-Path $installedExe)) { throw "Online installer did not install VxPlayer.exe" }
-            & $installedExe --check-libvlc
-            if ($LASTEXITCODE -ne 0) { throw "Online-installed VxPlayer LibVLC smoke test failed with exit code $LASTEXITCODE" }
+            $installedCheck = Start-Process `
+              -FilePath $installedExe `
+              -ArgumentList @("--check-libvlc") `
+              -Wait -PassThru
+            if ($installedCheck.ExitCode -ne 0) { throw "Online-installed VxPlayer LibVLC smoke test failed with exit code $($installedCheck.ExitCode)" }
             $uninstaller = Start-Process `
               -FilePath (Join-Path $installDir "unins000.exe") `
               -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
