@@ -624,6 +624,8 @@ class MainWindow(QMainWindow):
             if answer == QMessageBox.StandardButton.Yes:
                 self._pending_update_download = update
                 self.statusBar().showMessage(f"Preparing VxPlayer {version} update...")
+                if self._update_thread is None:
+                    self._start_pending_update_download()
             return
 
         if not isinstance(result, dict):
@@ -703,17 +705,22 @@ class MainWindow(QMainWindow):
         self._update_thread = None
         self._update_worker = None
         thread.deleteLater()
-        update = self._pending_update_download
-        if update is not None:
-            self._pending_update_download = None
-            self.statusBar().showMessage(
-                f"Downloading and verifying changed files for VxPlayer {update['version']}..."
-            )
-            self._start_update_task("download", update)
+        if self._pending_update_download is not None:
+            self._start_pending_update_download()
             return
         if self._close_after_update:
             self._close_after_update = False
             QTimer.singleShot(0, self.close)
+
+    def _start_pending_update_download(self) -> None:
+        update = self._pending_update_download
+        if update is None or self._update_thread is not None:
+            return
+        self._pending_update_download = None
+        self.statusBar().showMessage(
+            f"Downloading and verifying changed files for VxPlayer {update['version']}..."
+        )
+        self._start_update_task("download", update)
 
     def _init_system_tray(self) -> None:
         self.tray_icon: QSystemTrayIcon | None = None
