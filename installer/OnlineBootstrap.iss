@@ -42,6 +42,9 @@ function GetFullInstallerArguments(Param: String): String;
 var
   CommandLine: String;
   InternalArgumentEnd: Integer;
+  LogSwitchPosition: Integer;
+  LogValueStart: Integer;
+  LogValueEnd: Integer;
 begin
   CommandLine := GetCmdTail;
   if CompareText(Copy(CommandLine, 1, 5), '/SL5=') = 0 then
@@ -55,6 +58,30 @@ begin
         InternalArgumentEnd + 1,
         Length(CommandLine)
       );
+  end;
+  LogSwitchPosition := Pos('/LOG=', Uppercase(CommandLine));
+  if LogSwitchPosition > 0 then
+  begin
+    LogValueStart := LogSwitchPosition + 5;
+    if Copy(CommandLine, LogValueStart, 1) = '"' then
+    begin
+      LogValueEnd := Pos('"', Copy(CommandLine, LogValueStart + 1, Length(CommandLine)));
+      if LogValueEnd > 0 then
+        LogValueEnd := LogValueStart + LogValueEnd
+      else
+        LogValueEnd := Length(CommandLine);
+    end
+    else
+    begin
+      LogValueEnd := Pos(' ', Copy(CommandLine, LogValueStart, Length(CommandLine)));
+      if LogValueEnd > 0 then
+        LogValueEnd := LogValueStart + LogValueEnd - 2
+      else
+        LogValueEnd := Length(CommandLine);
+    end;
+    if (LogValueEnd < Length(CommandLine)) and (Copy(CommandLine, LogValueEnd + 1, 1) = ' ') then
+      LogValueEnd := LogValueEnd + 1;
+    Delete(CommandLine, LogSwitchPosition, LogValueEnd - LogSwitchPosition + 1);
   end;
   Result := CommandLine;
 end;
