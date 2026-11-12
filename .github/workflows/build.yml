@@ -115,7 +115,10 @@ jobs:
             -CompressionLevel Optimal
           $payloadPath = Join-Path $env:RUNNER_TEMP "VxPlayer-windows-x64.zip"
           $payloadHash = (Get-FileHash $payloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
-          $payloadSize = (Get-Item $payloadPath).Length
+          $payloadMeasure = Get-ChildItem -LiteralPath $bundleDir -File -Recurse |
+            Measure-Object -Property Length -Sum
+          $payloadSize = [long]$payloadMeasure.Sum
+          if ($payloadSize -le 0) { throw "The Windows install payload is empty." }
           $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
           if ($isccCommand) {
             $iscc = $isccCommand.Source
