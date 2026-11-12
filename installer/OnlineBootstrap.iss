@@ -38,6 +38,27 @@ InstallingLabel=Downloading the full VxPlayer installer...
 Source: "{#PayloadUrl}"; DestName: "VxPlayer-Setup-Full.exe"; DestDir: "{tmp}"; Hash: "{#PayloadSha256}"; ExternalSize: {#PayloadSize}; Flags: external download ignoreversion
 
 [Code]
+function GetFullInstallerArguments(Param: String): String;
+var
+  CommandLine: String;
+  InternalArgumentEnd: Integer;
+begin
+  CommandLine := GetCmdTail;
+  if CompareText(Copy(CommandLine, 1, 5), '/SL5=') = 0 then
+  begin
+    InternalArgumentEnd := Pos(' /', CommandLine);
+    if InternalArgumentEnd = 0 then
+      CommandLine := ''
+    else
+      CommandLine := Copy(
+        CommandLine,
+        InternalArgumentEnd + 1,
+        Length(CommandLine)
+      );
+  end;
+  Result := CommandLine;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -46,7 +67,7 @@ begin
   begin
     if not Exec(
       ExpandConstant('{tmp}\VxPlayer-Setup-Full.exe'),
-      GetCmdTail,
+      GetFullInstallerArguments(''),
       '',
       SW_SHOWNORMAL,
       ewWaitUntilTerminated,
