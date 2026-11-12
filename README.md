@@ -28,7 +28,7 @@ Python 3.11 or newer and a LibVLC runtime are required. The Windows release work
 
 ### Windows installer
 
-Download and run `VxPlayer-Setup.exe` from the [latest release](https://github.com/lenvartica/vxmediaplayer/releases/latest). The setup wizard shows installation progress and lets you choose the destination folder. It installs the player, LibVLC, Python/Qt runtime, and update helper together so all modules are ready at launch. It can add Start menu/desktop shortcuts, register media types for Windows Default apps, and add an Explorer right-click action. Windows does not permit installers to silently override the user's default-app selections. Windows may ask for administrator approval. The full ZIP is also available for portable use.
+Download and run `VxPlayer-Setup.exe` from the [latest release](https://github.com/lenvartica/vxmediaplayer/releases/latest). This small bootstrap downloads and verifies the full installer, then opens the normal setup wizard so you can choose the destination and Windows integration options. The full installer installs the player, LibVLC, Python/Qt runtime, and update helper together so all modules are ready at launch. Windows may ask for administrator approval. The full installer and portable ZIP are also available on the release page.
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -48,7 +48,7 @@ On Linux, install your distribution's VLC/LibVLC packages before launching. If t
 - Video menu includes capture, always-on-top, and video adjustments; Audio and Subtitles menus expose track selection.
 - Settings provides audio output, audio/subtitle synchronization, subtitle appearance, and configurable keyboard shortcuts. Windows options also include global hotkeys/media keys, minimize-to-tray, start-at-sign-in, and keeping the display awake during playback.
 - Select **Help → Check for updates...** to check stable releases and the rolling Continuous prerelease. Updates are never installed without confirmation. Modular installs fetch only the changed file shards and verify the downloads before replacing installed files.
-- `VxPlayer-Setup.exe` is a small online installer for a first install or a one-time migration from the old single-EXE package. It downloads the complete Windows package from the matching GitHub release and verifies its SHA-256. An internet connection is required. The full ZIP contains all application modules for manual or portable installation.
+- `VxPlayer-Setup.exe` is a small online bootstrap for a first install or a one-time migration from the old single-EXE package. It downloads and verifies `VxPlayer-Setup-Full.exe` from the matching GitHub release, then runs the full setup. An internet connection is required. The full ZIP contains all application modules for manual or portable installation.
 
 ## Project layout
 

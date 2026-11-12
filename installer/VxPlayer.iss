@@ -2,11 +2,7 @@
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
-#ifdef OnlineSetup
-  #define SetupOutput "VxPlayer-Setup"
-#else
-  #define SetupOutput "VxPlayer-Setup-Full"
-#endif
+#define SetupOutput "VxPlayer-Setup-Full"
 
 [Setup]
 AppId={{3B7A4562-2D77-4D96-93B9-66B5AB8D82E7}
@@ -27,9 +23,6 @@ SetupIconFile=..\src\assets\vxplayer.ico
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
-#ifdef OnlineSetup
-ArchiveExtraction=full
-#endif
 DisableWelcomePage=no
 DisableDirPage=no
 OutputBaseFilename={#SetupOutput}
@@ -54,11 +47,7 @@ InstallingLabel=Please wait while VxPlayer is installed on your computer.
 StatusExtractFiles=Installing VxPlayer application files...
 
 [Files]
-#ifdef OnlineSetup
-Source: "{#PayloadUrl}"; DestName: "VxPlayer-windows-x64.zip"; DestDir: "{app}"; Hash: "{#PayloadSha256}"; ExternalSize: {#PayloadSize}; Flags: external download extractarchive ignoreversion
-#else
 Source: "..\dist\VxPlayer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-#endif
 
 [Icons]
 Name: "{autoprograms}\VxPlayer"; Filename: "{app}\VxPlayer.exe"; WorkingDir: "{app}"

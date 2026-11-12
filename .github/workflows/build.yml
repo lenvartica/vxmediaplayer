@@ -113,12 +113,6 @@ jobs:
             -Path "$bundleDir\*" `
             -DestinationPath "$env:RUNNER_TEMP\VxPlayer-windows-x64.zip" `
             -CompressionLevel Optimal
-          $payloadPath = Join-Path $env:RUNNER_TEMP "VxPlayer-windows-x64.zip"
-          $payloadHash = (Get-FileHash $payloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
-          $payloadMeasure = Get-ChildItem -LiteralPath $bundleDir -File -Recurse |
-            Measure-Object -Property Length -Sum
-          $payloadSize = [long]$payloadMeasure.Sum
-          if ($payloadSize -le 0) { throw "The Windows install payload is empty." }
           $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
           if ($isccCommand) {
             $iscc = $isccCommand.Source
@@ -126,16 +120,17 @@ jobs:
             $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
           }
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler was not found: $iscc" }
-          $smokeDir = Join-Path $env:RUNNER_TEMP "setup-smoke"
-          New-Item -ItemType Directory -Path $smokeDir -Force | Out-Null
           Push-Location installer
           try {
-            & $iscc "/DAppVersion=$env:VXPLAYER_VERSION" "/O$smokeDir" "VxPlayer.iss"
+            & $iscc "/DAppVersion=$env:VXPLAYER_VERSION" "/O$env:RUNNER_TEMP" "VxPlayer.iss"
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
           } finally {
             Pop-Location
           }
-          $fullInstallerPath = Join-Path $smokeDir "VxPlayer-Setup-Full.exe"
+          $fullInstallerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup-Full.exe"
+          if (-not (Test-Path $fullInstallerPath)) { throw "The full installer was not created." }
+          $fullInstallerHash = (Get-FileHash $fullInstallerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $fullInstallerSize = (Get-Item $fullInstallerPath).Length
           $installDir = Join-Path $env:RUNNER_TEMP "install-smoke"
           $installerLog = Join-Path $env:RUNNER_TEMP "vxplayer-installer-smoke.log"
           $installerArgs = @(
@@ -173,17 +168,16 @@ jobs:
             -Wait -PassThru
           if ($uninstaller.ExitCode -ne 0) { throw "Installer uninstall smoke test failed with exit code $($uninstaller.ExitCode)" }
           if ($env:GITHUB_REF_TYPE -eq "tag") { $releaseTag = $env:GITHUB_REF_NAME } else { $releaseTag = "continuous" }
-          $payloadUrl = "https://github.com/lenvartica/vxmediaplayer/releases/download/$releaseTag/VxPlayer-windows-x64.zip"
+          $payloadUrl = "https://github.com/lenvartica/vxmediaplayer/releases/download/$releaseTag/VxPlayer-Setup-Full.exe"
           Push-Location installer
           try {
             & $iscc `
-              "/DOnlineSetup=1" `
               "/DAppVersion=$env:VXPLAYER_VERSION" `
               "/DPayloadUrl=$payloadUrl" `
-              "/DPayloadSha256=$payloadHash" `
-              "/DPayloadSize=$payloadSize" `
+              "/DPayloadSha256=$fullInstallerHash" `
+              "/DPayloadSize=$fullInstallerSize" `
               "/O$env:RUNNER_TEMP" `
-              "VxPlayer.iss"
+              "OnlineBootstrap.iss"
             if ($LASTEXITCODE -ne 0) { throw "Online Inno Setup build failed with exit code $LASTEXITCODE" }
           } finally {
             Pop-Location
