@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication
 
+from app_version import APP_VERSION
 from engine.player import create_vlc_instance
 from ui.main_window import MainWindow
 
@@ -24,6 +25,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("VxPlayer")
     app.setOrganizationName("Decan Konnect")
+    app.setApplicationVersion(APP_VERSION)
     stylesheet = Path(__file__).parent / "assets" / "style.qss"
     if stylesheet.exists():
         app.setStyleSheet(stylesheet.read_text(encoding="utf-8"))

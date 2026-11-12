@@ -30,7 +30,7 @@ VersionInfoCompany=Decan Konnect
 VersionInfoDescription=VxPlayer Media Player Setup
 VersionInfoProductName=VxPlayer
 VersionInfoProductVersion={#AppVersion}
-VersionInfoVersion={#AppVersion}.0
+VersionInfoVersion={#AppVersion}
 
 [Tasks]
 Name: "createicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"

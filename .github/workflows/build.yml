@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: vxplayer-build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build (${{ matrix.os }})
@@ -26,12 +30,47 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+      - name: Set Windows application version
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq "tag" -and $env:GITHUB_REF_NAME -match '^v(\d+\.\d+\.\d+)$') {
+            $appVersion = "$($Matches[1]).0"
+          } else {
+            $latestTag = git tag --list 'v[0-9]*' --sort=-version:refname | Select-Object -First 1
+            if ($latestTag -match '^v(\d+\.\d+\.\d+)$') {
+              $appVersion = "$($Matches[1]).$env:GITHUB_RUN_NUMBER"
+            } else {
+              $appVersion = "1.0.0.$env:GITHUB_RUN_NUMBER"
+            }
+          }
+          Set-Content -Path src/app_version.py -Value "APP_VERSION = `"$appVersion`"" -Encoding Ascii
+          "VXPLAYER_VERSION=$appVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Building VxPlayer $appVersion"
+      - name: Set Linux application version
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            version="${BASH_REMATCH[1]}.0"
+          else
+            latest_tag="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -n 1)"
+            if [[ "$latest_tag" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              version="${BASH_REMATCH[1]}.${GITHUB_RUN_NUMBER}"
+            else
+              version="1.0.0.${GITHUB_RUN_NUMBER}"
+            fi
+          fi
+          printf 'APP_VERSION = "%s"\n' "$version" > src/app_version.py
+          echo "Building VxPlayer $version"
       - name: Package Windows executable with LibVLC
         if: runner.os == 'Windows'
         shell: pwsh
@@ -61,14 +100,9 @@ jobs:
             $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
           }
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler was not found: $iscc" }
-          if ($env:GITHUB_REF_NAME -match '^v(\d+\.\d+\.\d+)$') {
-            $appVersion = $Matches[1]
-          } else {
-            $appVersion = "0.0.$env:GITHUB_RUN_NUMBER"
-          }
           Push-Location installer
           try {
-            & $iscc "/DAppVersion=$appVersion" "/O$env:RUNNER_TEMP" "VxPlayer.iss"
+            & $iscc "/DAppVersion=$env:VXPLAYER_VERSION" "/O$env:RUNNER_TEMP" "VxPlayer.iss"
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
           } finally {
             Pop-Location
@@ -97,6 +131,15 @@ jobs:
             -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
             -Wait -PassThru
           if ($uninstaller.ExitCode -ne 0) { throw "Installer uninstall smoke test failed with exit code $($uninstaller.ExitCode)" }
+          $installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifest = @{
+            version = $env:VXPLAYER_VERSION
+            tag = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "continuous" }
+            installer = "VxPlayer-Setup.exe"
+            sha256 = $installerHash
+            commit = $env:GITHUB_SHA
+          } | ConvertTo-Json
+          Set-Content -Path (Join-Path $env:RUNNER_TEMP "VxPlayer-update.json") -Value $manifest -Encoding Ascii
       - name: Package Linux executable
         if: runner.os == 'Linux'
         run: |
@@ -128,5 +171,38 @@ jobs:
       - name: Publish GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
-          files: release-assets/*
+          files: release-assets/VxPlayer*
           generate_release_notes: true
+  continuous_release:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Update rolling continuous release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f continuous "$GITHUB_SHA"
+          git push origin refs/tags/continuous --force
+          if gh release view continuous >/dev/null 2>&1; then
+            gh release edit continuous \
+              --title "VxPlayer Continuous Build" \
+              --notes "Latest successful build from main. This prerelease is updated automatically after each successful main-branch build." \
+              --prerelease
+          else
+            gh release create continuous \
+              --title "VxPlayer Continuous Build" \
+              --notes "Latest successful build from main. This prerelease is updated automatically after each successful main-branch build." \
+              --prerelease \
+              --target "$GITHUB_SHA"
+          fi
+          gh release upload continuous release-assets/VxPlayer* --clobber

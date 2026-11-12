@@ -9,7 +9,17 @@ import time
 from pathlib import Path
 
 import vlc
-from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QSettings, QTimer, pyqtSignal
+from PyQt6.QtCore import (
+    QEvent,
+    QPoint,
+    QProcess,
+    QSize,
+    Qt,
+    QSettings,
+    QThread,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QAction, QIcon, QKeySequence, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
@@ -46,6 +56,7 @@ from ui.windows_integration import (
     set_keep_awake,
     set_startup_registration,
 )
+from ui.update_checker import UpdateWorker
 
 LOGGER = logging.getLogger(__name__)
 ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -137,6 +148,11 @@ class MainWindow(QMainWindow):
             self.settings.value("keep_awake", "false") in (True, "true", "1")
         )
         self._keep_awake_active = False
+        self._update_thread: QThread | None = None
+        self._update_worker: UpdateWorker | None = None
+        self._pending_update_download: dict | None = None
+        self._silent_update_check = False
+        self._close_after_update = False
         self._build_ui()
         try:
             self.player = Player(self.video_surface, self)
@@ -165,6 +181,8 @@ class MainWindow(QMainWindow):
         if application is not None:
             self._global_hotkeys = WindowsGlobalHotkeys(application)
             self._configure_global_hotkeys()
+        if sys.platform == "win32":
+            QTimer.singleShot(4000, self._check_for_updates_silently)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -383,6 +401,8 @@ class MainWindow(QMainWindow):
         self.recent_menu_action.triggered.connect(self._clear_recent)
         self.shortcut_help_action = QAction("Keyboard shortcuts", self)
         self.shortcut_help_action.triggered.connect(self._show_shortcuts)
+        self.check_updates_action = QAction("Check for updates...", self)
+        self.check_updates_action.triggered.connect(self._check_for_updates)
         self.frame_step_action = QAction("Next frame", self)
         self.frame_step_action.setShortcut(QKeySequence("E"))
         self.frame_step_action.triggered.connect(lambda checked=False: self.player.next_frame())
@@ -474,7 +494,119 @@ class MainWindow(QMainWindow):
         tracks_menu = self.menuBar().addMenu("Tracks")
         tracks_menu.addMenu(self.video_tracks_menu)
         help_menu = self.menuBar().addMenu("Help")
+        help_menu.addAction(self.check_updates_action)
+        help_menu.addSeparator()
         help_menu.addAction(self.shortcut_help_action)
+
+    def _check_for_updates(self) -> None:
+        if sys.platform != "win32":
+            QMessageBox.information(
+                self,
+                "VxPlayer updates",
+                "In-app installer updates are available for Windows. "
+                "Check GitHub Releases for updates on this platform.",
+            )
+            return
+        self._silent_update_check = False
+        self.statusBar().showMessage("Checking GitHub Releases for VxPlayer updates...")
+        self._start_update_task("check")
+
+    def _check_for_updates_silently(self) -> None:
+        if self.isVisible() and not self._quit_requested:
+            self._silent_update_check = True
+            self._start_update_task("check")
+
+    def _start_update_task(self, operation: str, update: dict | None = None) -> None:
+        if self._update_thread is not None and self._update_thread.isRunning():
+            return
+        thread = QThread(self)
+        worker = UpdateWorker(operation, update)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.completed.connect(
+            lambda result, task=operation: self._update_task_completed(task, result)
+        )
+        worker.failed.connect(self._update_task_failed)
+        worker.completed.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(self._update_thread_finished)
+        self._update_thread = thread
+        self._update_worker = worker
+        thread.start()
+
+    def _update_task_completed(self, operation: str, result: object) -> None:
+        if operation == "check":
+            if result is None:
+                if not self._silent_update_check:
+                    QMessageBox.information(
+                        self,
+                        "VxPlayer is up to date",
+                        "You already have the latest VxPlayer build.",
+                    )
+                    self.statusBar().showMessage("VxPlayer is up to date.", 5000)
+                self._silent_update_check = False
+                return
+            self._silent_update_check = False
+            if self._close_after_update:
+                return
+            update = result
+            version = update["version"]
+            channel = "continuous build" if update.get("prerelease") else "release"
+            answer = QMessageBox.question(
+                self,
+                "VxPlayer update available",
+                f"VxPlayer {version} ({channel}) is available.\n\n"
+                "Download and verify the installer now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if answer == QMessageBox.StandardButton.Yes:
+                self._pending_update_download = update
+                self.statusBar().showMessage(f"Preparing VxPlayer {version} update...")
+            return
+
+        installer = str(result)
+        process = QProcess(self)
+        process.setProgram(installer)
+        if not process.startDetached():
+            self._show_error("The verified update installer could not be started.")
+            return
+        self._quit_requested = True
+        if self.tray_icon is not None:
+            self.tray_icon.hide()
+        QTimer.singleShot(0, self.close)
+
+    def _update_task_failed(self, message: str) -> None:
+        if self._silent_update_check:
+            self._silent_update_check = False
+            LOGGER.warning("Automatic update check failed: %s", message)
+            return
+        QMessageBox.warning(
+            self,
+            "VxPlayer update problem",
+            f"VxPlayer could not complete the update task:\n\n{message}",
+        )
+        self.statusBar().showMessage("VxPlayer update check failed.", 7000)
+
+    def _update_thread_finished(self) -> None:
+        thread = self.sender()
+        if thread is not self._update_thread:
+            return
+        self._update_thread = None
+        self._update_worker = None
+        thread.deleteLater()
+        update = self._pending_update_download
+        if update is not None:
+            self._pending_update_download = None
+            self.statusBar().showMessage(
+                f"Downloading and verifying VxPlayer {update['version']}..."
+            )
+            self._start_update_task("download", update)
+            return
+        if self._close_after_update:
+            self._close_after_update = False
+            QTimer.singleShot(0, self.close)
 
     def _init_system_tray(self) -> None:
         self.tray_icon: QSystemTrayIcon | None = None
@@ -1145,6 +1277,11 @@ class MainWindow(QMainWindow):
         ):
             self._persist_state()
             self.hide()
+            event.ignore()
+            return
+        if self._update_thread is not None and self._update_thread.isRunning():
+            self._close_after_update = True
+            self.statusBar().showMessage("Finishing the current update task before closing...")
             event.ignore()
             return
         self._persist_state()
