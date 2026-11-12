@@ -1,4 +1,4 @@
-"""Searchable, reorderable media queue."""
+"""Reorderable media queue."""
 
 from __future__ import annotations
 
