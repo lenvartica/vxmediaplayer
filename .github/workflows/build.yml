@@ -81,7 +81,7 @@ jobs:
           choco install innosetup --no-progress -y
           $vlc = "${env:ProgramFiles}\VideoLAN\VLC"
           if (-not (Test-Path "$vlc\libvlc.dll")) { throw "LibVLC was not installed at $vlc" }
-          python -m PyInstaller --noconfirm --clean --onedir --noarchive --windowed `
+          python -m PyInstaller --noconfirm --clean --onedir --debug noarchive --windowed `
             --name VxPlayer `
             --icon src/assets/vxplayer.ico `
             --add-data "src/assets;assets" `
