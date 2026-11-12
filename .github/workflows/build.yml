@@ -91,6 +91,9 @@ jobs:
             -Path "$env:RUNNER_TEMP\VxPlayer.exe", "README.md", "LICENSE" `
             -DestinationPath "$env:RUNNER_TEMP\VxPlayer-windows-x64.zip" `
             -CompressionLevel Optimal
+          $payloadPath = Join-Path $env:RUNNER_TEMP "VxPlayer-windows-x64.zip"
+          $payloadHash = (Get-FileHash $payloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $payloadSize = (Get-Item $payloadPath).Length
           & "$env:RUNNER_TEMP\VxPlayer.exe" --check-libvlc
           if ($LASTEXITCODE -ne 0) { throw "Bundled LibVLC smoke test failed with exit code $LASTEXITCODE" }
           $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
@@ -100,14 +103,16 @@ jobs:
             $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
           }
           if (-not (Test-Path $iscc)) { throw "Inno Setup compiler was not found: $iscc" }
+          $smokeDir = Join-Path $env:RUNNER_TEMP "setup-smoke"
+          New-Item -ItemType Directory -Path $smokeDir -Force | Out-Null
           Push-Location installer
           try {
-            & $iscc "/DAppVersion=$env:VXPLAYER_VERSION" "/O$env:RUNNER_TEMP" "VxPlayer.iss"
+            & $iscc "/DAppVersion=$env:VXPLAYER_VERSION" "/O$smokeDir" "VxPlayer.iss"
             if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
           } finally {
             Pop-Location
           }
-          $installerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup.exe"
+          $fullInstallerPath = Join-Path $smokeDir "VxPlayer-Setup-Full.exe"
           $installDir = Join-Path $env:RUNNER_TEMP "install-smoke"
           $installerLog = Join-Path $env:RUNNER_TEMP "vxplayer-installer-smoke.log"
           $installerArgs = @(
@@ -117,7 +122,7 @@ jobs:
             "/DIR=`"$installDir`"",
             "/LOG=`"$installerLog`""
           )
-          $installerProcess = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -Wait -PassThru
+          $installerProcess = Start-Process -FilePath $fullInstallerPath -ArgumentList $installerArgs -Wait -PassThru
           if ($installerProcess.ExitCode -ne 0) { throw "Installer smoke test failed with exit code $($installerProcess.ExitCode)" }
           $installedExe = Join-Path $installDir "VxPlayer.exe"
           if (-not (Test-Path $installedExe)) {
@@ -131,6 +136,24 @@ jobs:
             -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
             -Wait -PassThru
           if ($uninstaller.ExitCode -ne 0) { throw "Installer uninstall smoke test failed with exit code $($uninstaller.ExitCode)" }
+          if ($env:GITHUB_REF_TYPE -eq "tag") { $releaseTag = $env:GITHUB_REF_NAME } else { $releaseTag = "continuous" }
+          $payloadUrl = "https://github.com/lenvartica/vxmediaplayer/releases/download/$releaseTag/VxPlayer-windows-x64.zip"
+          Push-Location installer
+          try {
+            & $iscc `
+              "/DOnlineSetup=1" `
+              "/DAppVersion=$env:VXPLAYER_VERSION" `
+              "/DPayloadUrl=$payloadUrl" `
+              "/DPayloadSha256=$payloadHash" `
+              "/DPayloadSize=$payloadSize" `
+              "/O$env:RUNNER_TEMP" `
+              "VxPlayer.iss"
+            if ($LASTEXITCODE -ne 0) { throw "Online Inno Setup build failed with exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+          $installerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup.exe"
+          if ((Get-Item $installerPath).Length -gt 10MB) { throw "Online installer exceeded the 10 MB size limit" }
           $installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $manifest = @{
             version = $env:VXPLAYER_VERSION
@@ -173,6 +196,50 @@ jobs:
         with:
           files: release-assets/VxPlayer*
           generate_release_notes: true
+  online_installer_smoke:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - build
+      - release
+    runs-on: windows-latest
+    steps:
+      - name: Download the published online installer
+        shell: pwsh
+        run: |
+          $installerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup.exe"
+          $installerUrl = "https://github.com/lenvartica/vxmediaplayer/releases/download/$env:GITHUB_REF_NAME/VxPlayer-Setup.exe"
+          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          if ((Get-Item $installerPath).Length -gt 10MB) { throw "Published online installer exceeded the 10 MB size limit" }
+      - name: Install and verify the downloaded package
+        shell: pwsh
+        run: |
+          $installerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup.exe"
+          $installDir = Join-Path $env:RUNNER_TEMP "online-install-smoke"
+          $installerLog = Join-Path $env:RUNNER_TEMP "vxplayer-online-installer-smoke.log"
+          $installerArgs = @(
+            "/VERYSILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/DIR=`"$installDir`"",
+            "/LOG=`"$installerLog`""
+          )
+          $installerProcess = Start-Process -FilePath $installerPath -ArgumentList $installerArgs -Wait -PassThru
+          if ($installerProcess.ExitCode -ne 0) {
+            Get-Content $installerLog -Tail 80
+            throw "Online installer failed with exit code $($installerProcess.ExitCode)"
+          }
+          $installedExe = Join-Path $installDir "VxPlayer.exe"
+          if (-not (Test-Path $installedExe)) {
+            Get-Content $installerLog -Tail 80
+            throw "Online installer did not install VxPlayer.exe"
+          }
+          & $installedExe --check-libvlc
+          if ($LASTEXITCODE -ne 0) { throw "Online-installed VxPlayer LibVLC smoke test failed with exit code $LASTEXITCODE" }
+          $uninstaller = Start-Process `
+            -FilePath (Join-Path $installDir "unins000.exe") `
+            -ArgumentList @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART") `
+            -Wait -PassThru
+          if ($uninstaller.ExitCode -ne 0) { throw "Online installer uninstall smoke test failed with exit code $($uninstaller.ExitCode)" }
   continuous_release:
     if: github.ref == 'refs/heads/main'
     needs: build

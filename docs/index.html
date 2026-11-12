@@ -63,13 +63,13 @@
           <div class="tabs"><span class="active">Windows</span><span>Linux</span><span>From source</span></div>
           <div class="install-content">
             <h3>Windows installer</h3>
-            <ol><li>Download and run <code>VxPlayer-Setup.exe</code> from the latest release.</li><li>Approve the Windows installation prompt and follow the setup wizard.</li><li>Launch VxPlayer from the Start menu or optional desktop shortcut.</li></ol>
+            <ol><li>Download and run the small <code>VxPlayer-Setup.exe</code> from the latest release.</li><li>Approve the Windows installation prompt and follow the setup wizard. Setup downloads and verifies the player package, so an internet connection is required.</li><li>Launch VxPlayer from the Start menu or optional desktop shortcut.</li></ol>
             <h3>Run from source</h3>
             <pre><code>            git clone https://github.com/lenvartica/vxmediaplayer.git
             cd vxmediaplayer
 python -m pip install -r requirements.txt
 python src/main.py</code></pre>
-            <p class="trouble"><strong>Troubleshooting:</strong> The Windows installer includes LibVLC. Linux builds require system LibVLC and Qt-compatible display libraries. If playback cannot initialize, install your distribution's VLC/LibVLC packages.</p>
+            <p class="trouble"><strong>Troubleshooting:</strong> The Windows online installer downloads the LibVLC bundle from GitHub during setup; use the portable ZIP if you prefer to download it separately. Linux builds require system LibVLC and Qt-compatible display libraries. If playback cannot initialize, install your distribution's VLC/LibVLC packages.</p>
             <a class="text-link download-link" href="https://github.com/lenvartica/vxmediaplayer/releases/latest" data-platform="windows">Get the latest release ↗</a>
           </div>
         </div>

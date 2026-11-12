@@ -48,6 +48,7 @@ On Linux, install your distribution's VLC/LibVLC packages before launching. If t
 - Video menu includes capture, always-on-top, and video adjustments; Audio and Subtitles menus expose track selection.
 - Settings provides audio output, audio/subtitle synchronization, subtitle appearance, and configurable keyboard shortcuts. Windows options also include global hotkeys/media keys, minimize-to-tray, start-at-sign-in, and keeping the display awake during playback.
 - Select **Help → Check for updates...** to check stable releases and the rolling Continuous prerelease. Updates are never installed without confirmation.
+- `VxPlayer-Setup.exe` is a small online installer: it downloads the Windows package from the matching GitHub release, verifies its SHA-256, and extracts it during setup. An internet connection is required. The portable executable and ZIP remain available for manual installation.
 
 ## Project layout
 
@@ -63,7 +64,7 @@ requirements.txt    Pinned Python runtime/build dependencies
 
 ## Builds and deployment
 
-Every push to `main` builds Windows x64 and Linux x64 artifacts, then refreshes the **VxPlayer Continuous Build** prerelease with the successful outputs. Push a `v*` tag to publish a stable versioned release instead. Both releases include the Windows installer, update manifest, portable executable and ZIP, plus the Linux executable and `.tar.gz` package. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
+Every push to `main` builds Windows x64 and Linux x64 artifacts, then refreshes the **VxPlayer Continuous Build** prerelease with the successful outputs. Push a `v*` tag to publish a stable versioned release instead. Both releases include the small online Windows installer, update manifest, portable executable and ZIP, plus the Linux executable and `.tar.gz` package. The installer downloads the matching Windows ZIP and verifies its SHA-256 before extraction. Windows packages the VLC runtime into the PyInstaller executable. Linux output is a PyInstaller executable and requires compatible system LibVLC libraries/plugins.
 
 Before the Pages workflow can deploy, open **Settings → Pages** for the repository and set **Build and deployment → Source** to **GitHub Actions**. The first deployment fails if Pages has not been enabled this way. After enabling it, run **Deploy GitHub Pages** from the Actions tab; later `docs/` changes deploy automatically.
 
