@@ -1,101 +1,100 @@
 QWidget#root {
-    background: #0a0d14;
-    color: #e8edf7;
-    font-family: "Segoe UI", "Inter", sans-serif;
+    background: #f3f3f3;
+    color: #242424;
+    font-family: "Segoe UI", Arial, sans-serif;
     font-size: 13px;
 }
 QMenuBar, QMenu {
-    background-color: #111722;
-    color: #dce5f4;
+    background-color: #ffffff;
+    color: #242424;
 }
+QMenuBar::item, QMenu::item { padding: 5px 10px; }
 QMenu::item:selected, QMenuBar::item:selected {
-    background: #1c2a3c;
-    color: #70e4d1;
+    background: #ffe4cc;
+    color: #202020;
 }
 QLabel#brand {
-    color: #70e4d1;
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: 3px;
+    color: #292929;
+    font-size: 20px;
+    font-weight: 600;
 }
-QLabel#brandIcon { padding: 2px; }
-QLabel#trackLabel { color: #9daac0; }
+QLabel#trackLabel { color: #5b5b5b; }
 QWidget#videoSurface {
-    background: #030508;
-    border: 1px solid #202b3a;
-    border-radius: 12px;
+    background: #000000;
+    border: 1px solid #bcbcbc;
+    border-radius: 0;
 }
 QWidget#playlistPanel {
-    background: #101621;
-    border: 1px solid #202b3a;
-    border-radius: 12px;
+    background: #ffffff;
+    border: 1px solid #c9c9c9;
+    border-radius: 2px;
 }
-QLineEdit, QComboBox, QSpinBox, QKeySequenceEdit {
-    background: #141d2a;
-    border: 1px solid #29374a;
-    border-radius: 7px;
-    padding: 8px;
-    color: #e8edf7;
-    selection-background-color: #31cdb6;
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QKeySequenceEdit {
+    background: #ffffff;
+    border: 1px solid #bcbcbc;
+    border-radius: 3px;
+    padding: 5px 7px;
+    color: #242424;
+    selection-background-color: #f58220;
 }
 QListWidget {
-    background: transparent;
+    background: #ffffff;
     border: 0;
     outline: 0;
-    padding: 5px;
+    padding: 3px;
 }
 QListWidget::item {
-    padding: 10px 8px;
-    border-radius: 6px;
-    color: #c6d0df;
+    padding: 7px 6px;
+    color: #303030;
 }
 QListWidget::item:selected, QListWidget::item:hover {
-    background: #1c2a3c;
-    color: #70e4d1;
+    background: #ffe4cc;
+    color: #242424;
 }
 QPushButton {
-    background: #192333;
-    border: 1px solid #2b3a4e;
-    border-radius: 8px;
-    padding: 9px 13px;
-    color: #e8edf7;
+    background: #f7f7f7;
+    border: 1px solid #bcbcbc;
+    border-radius: 3px;
+    padding: 6px 10px;
+    color: #242424;
 }
-QPushButton:hover { background: #23344a; border-color: #49cdb9; }
-QPushButton:pressed { background: #14202d; }
+QPushButton:hover { background: #fff1e5; border-color: #e87918; }
+QPushButton:pressed { background: #ffd2ad; }
 QPushButton#primaryButton {
-    background: #1eb49f;
-    border-color: #40d5bf;
-    color: #04120f;
-    font-weight: 700;
+    background: #f58220;
+    border-color: #df6e12;
+    color: #ffffff;
+    font-weight: 600;
 }
-QPushButton#primaryButton:hover { background: #52d8c4; }
+QPushButton#primaryButton:hover { background: #e87413; }
 QPushButton#transportButton {
-    min-height: 36px;
-    padding: 7px 10px;
-    background: #141d2a;
-    border-color: #29374a;
+    min-height: 34px;
+    padding: 5px 8px;
+    background: transparent;
+    border-color: transparent;
 }
 QPushButton#transportButton:hover {
-    background: #1c2a3c;
-    border-color: #49cdb9;
+    background: #ffe4cc;
+    border-color: #e9a365;
 }
 QSlider::groove:horizontal {
     height: 5px;
-    background: #263345;
+    background: #c9c9c9;
     border-radius: 2px;
 }
-QSlider::sub-page:horizontal { background: #38ceb8; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #f58220; border-radius: 2px; }
 QSlider::handle:horizontal {
-    background: #a4fff0;
+    background: #f58220;
+    border: 1px solid #d86b10;
     width: 13px;
     height: 13px;
     margin: -5px 0;
-    border-radius: 6px;
+    border-radius: 7px;
 }
-QStatusBar { background: #101621; color: #9daac0; }
+QStatusBar { background: #ffffff; color: #505050; }
 QToolTip {
-    color: #e8edf7;
-    background: #172131;
-    border: 1px solid #38ceb8;
-    padding: 5px;
+    color: #242424;
+    background: #fff7ef;
+    border: 1px solid #e8a56c;
+    padding: 4px;
 }

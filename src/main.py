@@ -29,6 +29,13 @@ def main() -> int:
         app.setStyleSheet(stylesheet.read_text(encoding="utf-8"))
     window = MainWindow()
     window.show()
+    media_paths = [
+        Path(argument).expanduser()
+        for argument in sys.argv[1:]
+        if not argument.startswith("-") and Path(argument).is_file()
+    ]
+    if media_paths:
+        window.play_path(str(media_paths[0]))
     return app.exec()
 
 

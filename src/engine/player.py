@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import math
 import os
+import re
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -17,6 +19,7 @@ LOGGER = logging.getLogger(__name__)
 SUPPORTED_MEDIA = {
     ".mp4", ".mp3", ".m4a", ".mkv", ".avi", ".flac", ".wav", ".aac",
     ".ogg", ".mov", ".wmv", ".webm", ".3gp", ".m4v", ".ts", ".opus",
+    ".flv", ".mpg", ".mpeg", ".m2ts", ".vob", ".ogv", ".aiff", ".wma",
 }
 SUBTITLE_SUFFIXES = {".srt", ".vtt", ".ass", ".ssa", ".sub"}
 
@@ -25,6 +28,7 @@ def create_vlc_instance() -> Optional[vlc.Instance]:
     return vlc.Instance(
         "--no-video-title-show",
         "--quiet",
+        "--avcodec-hw=any",
         "--audio-filter=compressor,scaletempo",
         "--compressor-threshold=-10.0",
         "--compressor-ratio=8.0",
@@ -43,6 +47,7 @@ class Player(QObject):
     media_changed = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
     volume_changed = pyqtSignal(int)
+    tracks_changed = pyqtSignal()
 
     def __init__(self, video_widget: object, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
@@ -62,8 +67,16 @@ class Player(QObject):
         self._subtitle_delay = 0
         self._applied_subtitle_delay: Optional[int] = None
         self._subtitle_size = 22
+        self._subtitle_color = "#FFFFFF"
+        self._subtitle_margin = 24
+        self._audio_delay = 0
+        self._applied_audio_delay: Optional[int] = None
+        self._audio_delay_error_reported = False
         self._audio_device_id = ""
         self._applied_audio_device: Optional[str] = None
+        self._rotation = 0
+        self._tracks_signature: tuple[tuple[str, tuple[tuple[int, str], ...]], ...] = ()
+        self._last_track_poll = 0.0
         self._poll_timer = QTimer(self)
         self._poll_timer.setInterval(200)
         self._poll_timer.timeout.connect(self._poll)
@@ -84,8 +97,16 @@ class Player(QObject):
         return self._subtitle_delay
 
     @property
+    def audio_delay(self) -> int:
+        return self._audio_delay
+
+    @property
     def duration_ms(self) -> int:
         return max(0, self._player.get_length())
+
+    @property
+    def current_time_ms(self) -> int:
+        return max(0, self._player.get_time())
 
     def _bind_video_surface(self) -> None:
         handle = int(self._video_widget.winId())
@@ -102,8 +123,15 @@ class Player(QObject):
             raise FileNotFoundError(f"Media file not found: {media_path}")
         media = self._instance.media_new(str(media_path))
         media.add_option(f":freetype-fontsize={self._subtitle_size}")
+        media.add_option(f":freetype-color=0x{self._subtitle_color[1:]}")
+        media.add_option(f":sub-margin={self._subtitle_margin}")
+        if self._rotation:
+            media.add_option(":video-filter=transform")
+            media.add_option(f":transform-type={self._rotation}")
         self._player.set_media(media)
         self._current_path = media_path
+        self._tracks_signature = ()
+        self._applied_audio_delay = None
         self._applied_subtitle_delay = None
         self._subtitle_delay = 0
         self.media_changed.emit(str(media_path))
@@ -141,6 +169,112 @@ class Player(QObject):
         if length > 0:
             target = min(target, length)
         self.seek(target)
+
+    def next_frame(self) -> None:
+        self._player.set_pause(1)
+        self._player.next_frame()
+
+    def take_snapshot(self, path: str | Path) -> None:
+        target = Path(path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if self._player.video_take_snapshot(0, str(target), 0, 0) == -1:
+            raise RuntimeError("LibVLC could not capture a video frame.")
+
+    def set_audio_delay(self, delay_ms: int) -> None:
+        self._audio_delay = max(-5000, min(5000, int(delay_ms)))
+        self._applied_audio_delay = None
+        self._audio_delay_error_reported = False
+
+    def tracks(self, kind: str) -> list[tuple[int, str]]:
+        methods = {
+            "audio": self._player.audio_get_track_description,
+            "video": self._player.video_get_track_description,
+            "subtitle": self._player.video_get_spu_description,
+        }
+        if kind not in methods:
+            raise ValueError(f"Unknown track type: {kind}")
+        descriptions = methods[kind]()
+        if not descriptions:
+            return []
+        result: list[tuple[int, str]] = []
+        try:
+            item = descriptions
+            while item:
+                track = item.contents
+                label = (
+                    track.name.decode("utf-8", errors="replace")
+                    if track.name
+                    else f"Track {track.id}"
+                )
+                result.append((int(track.id), label))
+                item = track.next
+        finally:
+            vlc.libvlc_track_description_list_release(descriptions)
+        return result
+
+    def current_track(self, kind: str) -> int:
+        if kind == "audio":
+            return int(self._player.audio_get_track())
+        if kind == "video":
+            return int(self._player.video_get_track())
+        if kind == "subtitle":
+            return int(self._player.video_get_spu())
+        raise ValueError(f"Unknown track type: {kind}")
+
+    def select_track(self, kind: str, track_id: int) -> None:
+        methods = {
+            "audio": self._player.audio_set_track,
+            "video": self._player.video_set_track,
+            "subtitle": self._player.video_set_spu,
+        }
+        if kind not in methods:
+            raise ValueError(f"Unknown track type: {kind}")
+        if methods[kind](int(track_id)) == -1:
+            raise RuntimeError(f"LibVLC could not select the {kind} track.")
+
+    def set_video_adjustment(self, option: str, value: float) -> None:
+        options = {
+            "brightness": vlc.VideoAdjustOption.Brightness,
+            "contrast": vlc.VideoAdjustOption.Contrast,
+            "saturation": vlc.VideoAdjustOption.Saturation,
+            "gamma": vlc.VideoAdjustOption.Gamma,
+        }
+        if option not in options:
+            raise ValueError(f"Unknown video adjustment: {option}")
+        self._player.video_set_adjust_int(vlc.VideoAdjustOption.Enable, 1)
+        self._player.video_set_adjust_float(options[option], float(value))
+
+    def set_aspect_ratio(self, ratio: str) -> None:
+        self._player.video_set_aspect_ratio(ratio.encode("ascii") if ratio else None)
+
+    def set_crop(self, geometry: str) -> None:
+        self._player.video_set_crop_geometry(geometry.encode("ascii") if geometry else None)
+
+    def set_audio_channel(self, channel: int) -> None:
+        if self._player.audio_set_channel(int(channel)) == -1:
+            raise RuntimeError("LibVLC could not change the audio channel mode.")
+
+    def set_deinterlace(self, mode: str) -> None:
+        self._player.video_set_deinterlace(mode or None)
+
+    def set_rotation(self, degrees: int) -> None:
+        if degrees not in (0, 90, 180, 270):
+            raise ValueError("Video rotation must be 0, 90, 180, or 270 degrees.")
+        if degrees == self._rotation:
+            return
+        position = self.current_time_ms
+        was_playing = self._player.is_playing()
+        self._rotation = degrees
+        if self._current_path:
+            self.open(self._current_path)
+            if not was_playing:
+                self.pause()
+            QTimer.singleShot(700, lambda: self.seek(position))
+
+    def set_video_scale(self, scale: float) -> None:
+        if not 0.5 <= scale <= 3.0:
+            raise ValueError("Video zoom must be between 0.5x and 3.0x.")
+        self._player.video_set_scale(float(scale))
 
     def set_volume(self, volume: int) -> None:
         """Set output gain from 0 to 300 percent, preserving the full requested range."""
@@ -180,6 +314,14 @@ class Player(QObject):
             raise ValueError("Subtitle font size must be between 12 and 48 pixels")
         self._subtitle_size = int(size)
 
+    def set_subtitle_style(self, color: str, bottom_margin: int) -> None:
+        if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+            raise ValueError("Subtitle color must be a six-digit hex color such as #FFFFFF.")
+        if not 0 <= int(bottom_margin) <= 200:
+            raise ValueError("Subtitle bottom margin must be between 0 and 200 pixels.")
+        self._subtitle_color = color.upper()
+        self._subtitle_margin = int(bottom_margin)
+
     def set_video_output(self, output: str) -> None:
         self._audio_device_id = output
         self._applied_audio_device = None
@@ -218,6 +360,30 @@ class Player(QObject):
             # LibVLC expects subtitle delay in microseconds; retry after the track appears.
             if self._player.video_set_spu_delay(self._subtitle_delay * 1000) == 0:
                 self._applied_subtitle_delay = self._subtitle_delay
+        if (
+            self._applied_audio_delay != self._audio_delay
+            and state in (vlc.State.Playing, vlc.State.Paused)
+            and self._player.audio_get_track() >= 0
+        ):
+            if self._player.audio_set_delay(self._audio_delay * 1000) == 0:
+                self._applied_audio_delay = self._audio_delay
+            elif not self._audio_delay_error_reported:
+                self._audio_delay_error_reported = True
+                self.error_occurred.emit("LibVLC could not apply the audio synchronization delay.")
+        now = time.monotonic()
+        if state in (vlc.State.Playing, vlc.State.Paused) and now - self._last_track_poll >= 1:
+            self._last_track_poll = now
+            try:
+                signature = tuple(
+                    (kind, tuple(self.tracks(kind)))
+                    for kind in ("audio", "video", "subtitle")
+                )
+            except Exception:
+                LOGGER.debug("Could not read media track descriptions", exc_info=True)
+            else:
+                if signature != self._tracks_signature:
+                    self._tracks_signature = signature
+                    self.tracks_changed.emit()
         self.position_changed.emit(position, length)
         self.state_changed.emit(str(state).split(".")[-1].lower())
 

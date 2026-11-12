@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import time
-from functools import lru_cache
 from pathlib import Path
 
 import vlc
-from PyQt6.QtCore import QPoint, QSize, Qt, QSettings, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QSize, Qt, QSettings, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QIcon, QKeySequence, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
@@ -19,14 +19,20 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
     QMessageBox,
+    QMenu,
     QPushButton,
+    QDoubleSpinBox,
     QSlider,
     QSplitter,
     QStatusBar,
+    QStyle,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -35,16 +41,16 @@ from engine.equalizer import PRESETS
 from engine.player import Player, SUPPORTED_MEDIA, SUBTITLE_SUFFIXES
 from ui.playlist_widget import PlaylistWidget
 from ui.settings_dialog import SettingsDialog
+from ui.windows_integration import (
+    WindowsGlobalHotkeys,
+    set_keep_awake,
+    set_startup_registration,
+)
 
 LOGGER = logging.getLogger(__name__)
 ASSET_DIR = Path(__file__).resolve().parents[1] / "assets"
 MEDIA_FILTER = "Media files (" + " ".join(f"*{suffix}" for suffix in sorted(SUPPORTED_MEDIA)) + ")"
 EQUALIZER_BANDS = ("60", "170", "310", "600", "1k", "3k", "6k", "12k", "14k", "16k")
-
-
-@lru_cache(maxsize=None)
-def _icon(name: str) -> QIcon:
-    return QIcon(_svg_pixmap(ASSET_DIR / "icons" / f"{name}.svg", 48))
 
 
 def _svg_pixmap(path: Path, size: int) -> QPixmap:
@@ -121,6 +127,16 @@ class MainWindow(QMainWindow):
         self._normal_geometry = None
         self._last_position_update = 0.0
         self._last_player_state = ""
+        self._loop_a: int | None = None
+        self._loop_b: int | None = None
+        self._resume_pending: tuple[str, int] | None = None
+        self._last_resume_save = 0.0
+        self._resume_positions = self._read_resume_positions()
+        self._quit_requested = False
+        self._keep_awake_enabled = (
+            self.settings.value("keep_awake", "false") in (True, "true", "1")
+        )
+        self._keep_awake_active = False
         self._build_ui()
         try:
             self.player = Player(self.video_surface, self)
@@ -134,10 +150,21 @@ class MainWindow(QMainWindow):
             raise
         self._connect_player()
         self.player.set_subtitle_size(int(self.settings.value("subtitle_size", 22)))
+        self.player.set_subtitle_style(
+            str(self.settings.value("subtitle_color", "#FFFFFF")),
+            int(self.settings.value("subtitle_margin", 24)),
+        )
+        self.player.set_audio_delay(int(self.settings.value("audio_delay", 0)))
+        self.player.set_rotation(int(self.settings.value("video_rotation", 0)))
         self.equalizer_dialog = EqualizerDialog(self.player.equalizer, self)
-        self._restore_state()
         self._create_actions()
         self._create_menus()
+        self._restore_state()
+        self._init_system_tray()
+        application = QApplication.instance()
+        if application is not None:
+            self._global_hotkeys = WindowsGlobalHotkeys(application)
+            self._configure_global_hotkeys()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -145,22 +172,10 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(root)
         outer.setContentsMargins(18, 14, 18, 16)
         header = QHBoxLayout()
-        brand_icon = QLabel()
-        brand_icon.setObjectName("brandIcon")
-        brand_icon.setAccessibleName("VxPlayer logo")
-        brand_icon.setPixmap(
-            _svg_pixmap(ASSET_DIR / "vxplayer.svg", 64).scaled(
-                34,
-                34,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-        brand = QLabel("VXPLAYER")
+        brand = QLabel("VxPlayer")
         brand.setObjectName("brand")
         self.track_label = QLabel("Ready when you are")
         self.track_label.setObjectName("trackLabel")
-        header.addWidget(brand_icon)
         header.addWidget(brand)
         header.addSpacing(20)
         header.addWidget(self.track_label, 1)
@@ -192,23 +207,35 @@ class MainWindow(QMainWindow):
 
         controls = QHBoxLayout()
         self.previous_button = QPushButton("Previous")
-        self.previous_button.setIcon(_icon("previous"))
+        self.previous_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSkipBackward)
+        )
         self.previous_button.setToolTip("Previous item (Ctrl+Left)")
         self.seek_back_button = QPushButton("-10")
-        self.seek_back_button.setIcon(_icon("seek-backward"))
+        self.seek_back_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSeekBackward)
+        )
         self.seek_back_button.setToolTip("Back 10 seconds (Left)")
         self.play_button = QPushButton("Play")
-        self.play_button.setIcon(_icon("play"))
+        self.play_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
+        )
         self.play_button.setToolTip("Play or pause (Space)")
         self.play_button.setObjectName("primaryButton")
         self.next_button = QPushButton("Next")
-        self.next_button.setIcon(_icon("next"))
+        self.next_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSkipForward)
+        )
         self.next_button.setToolTip("Next item (Ctrl+Right)")
         self.seek_forward_button = QPushButton("+10")
-        self.seek_forward_button.setIcon(_icon("seek-forward"))
+        self.seek_forward_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSeekForward)
+        )
         self.seek_forward_button.setToolTip("Forward 10 seconds (Right)")
         self.stop_button = QPushButton("Stop")
-        self.stop_button.setIcon(_icon("stop"))
+        self.stop_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
+        )
         self.stop_button.setToolTip("Stop playback (S)")
         self.speed_combo = QComboBox()
         self.speed_combo.addItems(["0.25x", "0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "2.0x", "3.0x", "4.0x"])
@@ -225,7 +252,9 @@ class MainWindow(QMainWindow):
             "0–300% output gain. Start low; high volume can damage hearing or distort audio."
         )
         self.mute_button = QPushButton()
-        self.mute_button.setIcon(_icon("volume"))
+        self.mute_button.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolume)
+        )
         self.mute_button.setToolTip("Mute or restore volume (M)")
         self.mute_button.setAccessibleName("Mute")
         self.pip_button = QPushButton("PiP")
@@ -354,11 +383,44 @@ class MainWindow(QMainWindow):
         self.recent_menu_action.triggered.connect(self._clear_recent)
         self.shortcut_help_action = QAction("Keyboard shortcuts", self)
         self.shortcut_help_action.triggered.connect(self._show_shortcuts)
+        self.frame_step_action = QAction("Next frame", self)
+        self.frame_step_action.setShortcut(QKeySequence("E"))
+        self.frame_step_action.triggered.connect(lambda checked=False: self.player.next_frame())
+        self.slower_action = QAction("Slow down", self)
+        self.slower_action.triggered.connect(lambda: self._change_rate(-1))
+        self.faster_action = QAction("Speed up", self)
+        self.faster_action.triggered.connect(lambda: self._change_rate(1))
+        self.mark_a_action = QAction("Set A point", self)
+        self.mark_a_action.triggered.connect(self._mark_loop_a)
+        self.mark_b_action = QAction("Set B point", self)
+        self.mark_b_action.triggered.connect(self._mark_loop_b)
+        self.clear_ab_action = QAction("Clear A-B repeat", self)
+        self.clear_ab_action.triggered.connect(self._clear_ab_repeat)
+        self.loop_current_action = QAction("Repeat current video", self)
+        self.loop_current_action.setCheckable(True)
+        self.repeat_playlist_action = QAction("Repeat playlist", self)
+        self.repeat_playlist_action.setCheckable(True)
+        self.snapshot_action = QAction("Capture frame...", self)
+        self.snapshot_action.triggered.connect(self._capture_frame)
+        self.video_adjust_action = QAction("Video adjustments...", self)
+        self.video_adjust_action.triggered.connect(self._video_adjustments)
+        self.always_on_top_action = QAction("Always on top", self)
+        self.always_on_top_action.setCheckable(True)
+        self.always_on_top_action.triggered.connect(self._set_always_on_top)
+        self.audio_tracks_menu = QMenu("Audio tracks", self)
+        self.subtitle_tracks_menu = QMenu("Subtitle tracks", self)
+        self.video_tracks_menu = QMenu("Video tracks", self)
+        for menu, kind in (
+            (self.audio_tracks_menu, "audio"),
+            (self.subtitle_tracks_menu, "subtitle"),
+            (self.video_tracks_menu, "video"),
+        ):
+            menu.aboutToShow.connect(lambda track_kind=kind: self._populate_tracks(track_kind))
         for action in (
             self.open_action, self.play_action, self.seek_back_action,
             self.seek_forward_action, self.mute_action, self.fullscreen_action,
             self.stop_action, self.previous_action, self.next_action,
-            self.exit_fullscreen_action,
+            self.exit_fullscreen_action, self.frame_step_action,
         ):
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             self.addAction(action)
@@ -372,8 +434,124 @@ class MainWindow(QMainWindow):
         self.recent_menu = file_menu.addMenu("Recent files")
         self._refresh_recent_menu()
         self.menuBar().addAction(self.recent_menu_action)
+        playback_menu = self.menuBar().addMenu("Playback")
+        for action in (
+            self.slower_action, self.faster_action, self.frame_step_action,
+            self.mark_a_action, self.mark_b_action, self.clear_ab_action,
+        ):
+            playback_menu.addAction(action)
+        playback_menu.addSeparator()
+        playback_menu.addAction(self.loop_current_action)
+        playback_menu.addAction(self.repeat_playlist_action)
+        video_menu = self.menuBar().addMenu("Video")
+        video_menu.addAction(self.video_adjust_action)
+        video_menu.addAction(self.always_on_top_action)
+        video_menu.addAction(self.snapshot_action)
+        audio_menu = self.menuBar().addMenu("Audio")
+        audio_menu.addMenu(self.audio_tracks_menu)
+        audio_menu.addAction(
+            "Stereo", lambda checked=False: self._set_audio_channel(vlc.AudioOutputChannel.Stereo)
+        )
+        audio_menu.addAction(
+            "Reverse stereo",
+            lambda checked=False: self._set_audio_channel(vlc.AudioOutputChannel.RStereo),
+        )
+        audio_menu.addAction(
+            "Left channel only",
+            lambda checked=False: self._set_audio_channel(vlc.AudioOutputChannel.Left),
+        )
+        audio_menu.addAction(
+            "Right channel only",
+            lambda checked=False: self._set_audio_channel(vlc.AudioOutputChannel.Right),
+        )
+        audio_menu.addAction(
+            "Dolby surround",
+            lambda checked=False: self._set_audio_channel(vlc.AudioOutputChannel.Dolbys),
+        )
+        subtitles_menu = self.menuBar().addMenu("Subtitles")
+        subtitles_menu.addMenu(self.subtitle_tracks_menu)
+        subtitles_menu.addAction("Load external subtitles...", self.open_subtitle)
+        tracks_menu = self.menuBar().addMenu("Tracks")
+        tracks_menu.addMenu(self.video_tracks_menu)
         help_menu = self.menuBar().addMenu("Help")
         help_menu.addAction(self.shortcut_help_action)
+
+    def _init_system_tray(self) -> None:
+        self.tray_icon: QSystemTrayIcon | None = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        tray_menu = QMenu(self)
+        tray_menu.addAction("Show VxPlayer", self._show_from_tray)
+        tray_menu.addAction("Play / pause", self._toggle_play)
+        tray_menu.addAction("Previous track", lambda checked=False: self._step_queue(-1))
+        tray_menu.addAction("Next track", lambda checked=False: self._step_queue(1))
+        tray_menu.addSeparator()
+        tray_menu.addAction("Quit VxPlayer", self._quit_from_tray)
+        self.tray_icon = QSystemTrayIcon(self.windowIcon(), self)
+        self.tray_icon.setToolTip("VxPlayer")
+        self.tray_icon.setContextMenu(tray_menu)
+        self.tray_icon.activated.connect(self._tray_activated)
+        self.tray_icon.show()
+
+    def _show_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason in (
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+            QSystemTrayIcon.ActivationReason.Trigger,
+        ):
+            self._show_from_tray()
+
+    def _quit_from_tray(self) -> None:
+        self._quit_requested = True
+        self.close()
+
+    def _configure_global_hotkeys(self) -> None:
+        if not hasattr(self, "_global_hotkeys"):
+            return
+        if self.settings.value("global_hotkeys", "false") not in (True, "true", "1"):
+            self._global_hotkeys.unregister()
+            return
+        callbacks = {
+            "play": self._toggle_play,
+            "next": lambda: self._step_queue(1),
+            "previous": lambda: self._step_queue(-1),
+        }
+        shortcuts = {
+            key: str(self.settings.value(f"global_shortcut_{key}", default))
+            for key, default in (
+                ("play", "Ctrl+Alt+Space"),
+                ("next", "Ctrl+Alt+Right"),
+                ("previous", "Ctrl+Alt+Left"),
+            )
+        }
+        try:
+            conflicts = self._global_hotkeys.register(callbacks, shortcuts)
+        except (OSError, RuntimeError, ValueError) as error:
+            self._show_error(str(error))
+        else:
+            if conflicts:
+                self.statusBar().showMessage(
+                    "Some hardware media keys are already used by another app: "
+                    + ", ".join(conflicts),
+                    8000,
+                )
+
+    def _update_keep_awake(self, playing: bool) -> None:
+        should_keep_awake = self._keep_awake_enabled and playing
+        if should_keep_awake == self._keep_awake_active:
+            return
+        try:
+            set_keep_awake(should_keep_awake)
+        except (OSError, RuntimeError) as error:
+            self._keep_awake_enabled = False
+            self.settings.setValue("keep_awake", False)
+            self._show_error(str(error))
+            return
+        self._keep_awake_active = should_keep_awake
 
     def open_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(self, "Open media", "", MEDIA_FILTER)
@@ -475,13 +653,169 @@ class MainWindow(QMainWindow):
     def _set_volume(self, value: int) -> None:
         self.player.set_volume(value)
         self.volume_label.setText(f"{value}%")
-        self.mute_button.setIcon(_icon("mute" if value == 0 else "volume"))
+        icon = (
+            QStyle.StandardPixmap.SP_MediaVolumeMuted
+            if value == 0
+            else QStyle.StandardPixmap.SP_MediaVolume
+        )
+        self.mute_button.setIcon(self.style().standardIcon(icon))
         self.mute_button.setAccessibleName("Unmute" if value == 0 else "Mute")
         if value > 0:
             self._last_unmuted_volume = value
 
     def _set_rate(self, rate: float) -> None:
         self.player.set_rate(rate)
+
+    def _change_rate(self, direction: int) -> None:
+        index = max(0, min(self.speed_combo.count() - 1, self.speed_combo.currentIndex() + direction))
+        self.speed_combo.setCurrentIndex(index)
+
+    def _mark_loop_a(self) -> None:
+        self._loop_a = self.player.current_time_ms
+        self._loop_b = None
+        self.statusBar().showMessage(f"A-B repeat start: {self._format_time(self._loop_a)}", 4000)
+
+    def _mark_loop_b(self) -> None:
+        position = self.player.current_time_ms
+        if self._loop_a is None or position <= self._loop_a:
+            self._show_error("Set a valid A point before setting the B point.")
+            return
+        self._loop_b = position
+        self.statusBar().showMessage(
+            f"A-B repeat: {self._format_time(self._loop_a)} – {self._format_time(self._loop_b)}",
+            5000,
+        )
+
+    def _clear_ab_repeat(self) -> None:
+        self._loop_a = None
+        self._loop_b = None
+        self.statusBar().showMessage("A-B repeat cleared.", 3000)
+
+    def _capture_frame(self) -> None:
+        if not self.player.current_path:
+            self._show_error("Open a video before capturing a frame.")
+            return
+        suggested = self.player.current_path.with_suffix(".png")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Capture frame", str(suggested), "PNG image (*.png);;JPEG image (*.jpg *.jpeg)"
+        )
+        if path:
+            try:
+                self.player.take_snapshot(path)
+                self.statusBar().showMessage(f"Frame saved to {path}", 5000)
+            except (OSError, RuntimeError) as error:
+                self._show_error(str(error))
+
+    def _populate_tracks(self, kind: str) -> None:
+        menu = {
+            "audio": self.audio_tracks_menu,
+            "subtitle": self.subtitle_tracks_menu,
+            "video": self.video_tracks_menu,
+        }[kind]
+        menu.clear()
+        try:
+            tracks = self.player.tracks(kind)
+            current = self.player.current_track(kind)
+        except Exception as error:
+            LOGGER.debug("Could not populate %s tracks", kind, exc_info=True)
+            menu.addAction(f"Track list unavailable: {error}").setEnabled(False)
+            return
+        if kind == "subtitle":
+            tracks.insert(0, (-1, "Disabled"))
+        for track_id, label in tracks:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(track_id == current)
+            action.triggered.connect(
+                lambda checked=False, selected=track_id, track_kind=kind:
+                self._select_track(track_kind, selected)
+            )
+        if not tracks:
+            menu.addAction("No tracks available").setEnabled(False)
+
+    def _select_track(self, kind: str, track_id: int) -> None:
+        try:
+            self.player.select_track(kind, track_id)
+        except (RuntimeError, ValueError) as error:
+            self._show_error(str(error))
+
+    def _set_audio_channel(self, channel: int) -> None:
+        try:
+            self.player.set_audio_channel(channel)
+        except RuntimeError as error:
+            self._show_error(str(error))
+
+    def _video_adjustments(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Video adjustments")
+        form = QFormLayout(dialog)
+        controls: dict[str, QDoubleSpinBox] = {}
+        for label, key, maximum in (
+            ("Brightness", "brightness", 2.0),
+            ("Contrast", "contrast", 2.0),
+            ("Saturation", "saturation", 3.0),
+            ("Gamma", "gamma", 10.0),
+        ):
+            control = QDoubleSpinBox()
+            control.setRange(0.0, maximum)
+            control.setSingleStep(0.05)
+            control.setValue(float(self.settings.value(f"video_{key}", 1.0)))
+            controls[key] = control
+            form.addRow(label, control)
+        aspect = QComboBox()
+        aspect.addItems(["Default", "16:9", "4:3", "1:1", "2.35:1"])
+        aspect.setCurrentText(str(self.settings.value("video_aspect", "Default")))
+        form.addRow("Aspect ratio", aspect)
+        zoom = QComboBox()
+        zoom.addItems(["1.0x", "1.25x", "1.5x", "2.0x"])
+        zoom.setCurrentText(str(self.settings.value("video_zoom", "1.0x")))
+        form.addRow("Zoom", zoom)
+        rotation = QComboBox()
+        rotation.addItems(["0°", "90°", "180°", "270°"])
+        rotation.setCurrentText(f"{int(self.settings.value('video_rotation', 0))}°")
+        form.addRow("Rotation (reopens media)", rotation)
+        deinterlace = QComboBox()
+        deinterlace.addItems(["Off", "yadif", "yadif2x", "blend", "bob", "linear"])
+        deinterlace.setCurrentText(str(self.settings.value("deinterlace", "Off")))
+        form.addRow("Deinterlacing", deinterlace)
+        crop = QComboBox()
+        crop.addItems(["None", "16:9", "4:3", "1:1", "2.35:1"])
+        crop.setCurrentText(str(self.settings.value("video_crop", "None")))
+        form.addRow("Crop", crop)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow(buttons)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        try:
+            for key, control in controls.items():
+                value = control.value()
+                self.player.set_video_adjustment(key, value)
+                self.settings.setValue(f"video_{key}", value)
+            ratio = "" if aspect.currentText() == "Default" else aspect.currentText()
+            self.player.set_aspect_ratio(ratio)
+            self.player.set_video_scale(float(zoom.currentText().rstrip("x")))
+            self.player.set_rotation(int(rotation.currentText().rstrip("°")))
+            crop_value = "" if crop.currentText() == "None" else crop.currentText()
+            self.player.set_crop(crop_value)
+            self.player.set_deinterlace(
+                "" if deinterlace.currentText() == "Off" else deinterlace.currentText()
+            )
+            self.settings.setValue("video_aspect", aspect.currentText())
+            self.settings.setValue("video_zoom", zoom.currentText())
+            self.settings.setValue("video_rotation", rotation.currentText().rstrip("°"))
+            self.settings.setValue("video_crop", crop.currentText())
+            self.settings.setValue("deinterlace", deinterlace.currentText())
+            self.settings.setValue("video_adjustment_configured", True)
+        except (RuntimeError, ValueError) as error:
+            self._show_error(str(error))
+
+    def _set_always_on_top(self, enabled: bool) -> None:
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
+        self.show()
 
     def _set_equalizer(self, name: str) -> None:
         try:
@@ -499,6 +833,20 @@ class MainWindow(QMainWindow):
     def _update_position(self, position: int, length: int) -> None:
         if length > 0 and not self.position_slider.isSliderDown():
             self.position_slider.setValue(int(position * 1000 / length))
+        if self._loop_a is not None and self._loop_b is not None and position >= self._loop_b:
+            self.player.seek(self._loop_a)
+        if (
+            self.player.current_path
+            and position > 0
+            and time.monotonic() - self._last_resume_save >= 10
+        ):
+            current_path = str(self.player.current_path)
+            if length > 0 and position >= length - 3000:
+                self._resume_positions.pop(current_path, None)
+            else:
+                self._resume_positions[current_path] = position
+            self._save_resume_positions()
+            self._last_resume_save = time.monotonic()
         now = time.monotonic()
         if now - self._last_position_update >= 0.8:
             self.position_label.setText(f"{self._format_time(position)} / {self._format_time(length)}")
@@ -506,8 +854,14 @@ class MainWindow(QMainWindow):
 
     def _update_state(self, state: str) -> None:
         playing = state == "playing"
+        self._update_keep_awake(playing)
         self.play_button.setText("Pause" if playing else "Play")
-        self.play_button.setIcon(_icon("pause" if playing else "play"))
+        icon = (
+            QStyle.StandardPixmap.SP_MediaPause
+            if playing
+            else QStyle.StandardPixmap.SP_MediaPlay
+        )
+        self.play_button.setIcon(self.style().standardIcon(icon))
         self.play_button.setToolTip(
             "Pause playback (Space)" if playing else "Play or pause (Space)"
         )
@@ -515,15 +869,52 @@ class MainWindow(QMainWindow):
         if (
             state == "ended"
             and self._last_player_state != "ended"
-            and self.playlist.list_widget.count() > 1
         ):
-            self._step_queue(1)
+            if self.loop_current_action.isChecked():
+                if self.player.current_path:
+                    current_path = str(self.player.current_path)
+                    self._resume_positions.pop(current_path, None)
+                    self.player.open(current_path)
+            elif self.repeat_playlist_action.isChecked() and self.playlist.paths():
+                self._step_queue(1)
         self._last_player_state = state
+        if state == "playing" and self._resume_pending:
+            path, position = self._resume_pending
+            self._resume_pending = None
+            if position > 5000 and self.player.current_path and str(self.player.current_path) == path:
+                QTimer.singleShot(500, lambda: self.player.seek(position))
+                self.statusBar().showMessage("Resumed from the last position.", 3500)
 
     def _media_changed(self, path: str) -> None:
         self.track_label.setText(Path(path).name)
         self.setWindowTitle(f"{Path(path).name} — VxPlayer")
         self.player.set_subtitle_delay(int(self.settings.value("subtitle_delay", 0)))
+        self._loop_a = None
+        self._loop_b = None
+        resume = self._resume_positions.get(str(Path(path)))
+        self._resume_pending = (str(Path(path)), resume) if resume else None
+        QTimer.singleShot(600, self._apply_video_settings)
+
+    def _apply_video_settings(self) -> None:
+        if not self.player.current_path:
+            return
+        try:
+            ratio = str(self.settings.value("video_aspect", "Default"))
+            self.player.set_aspect_ratio("" if ratio == "Default" else ratio)
+            self.player.set_video_scale(
+                float(str(self.settings.value("video_zoom", "1.0x")).rstrip("x"))
+            )
+            crop = str(self.settings.value("video_crop", "None"))
+            self.player.set_crop("" if crop == "None" else crop)
+            deinterlace = str(self.settings.value("deinterlace", "Off"))
+            self.player.set_deinterlace("" if deinterlace == "Off" else deinterlace)
+            if self.settings.value("video_adjustment_configured", False) in (True, "true", "1"):
+                for key in ("brightness", "contrast", "saturation", "gamma"):
+                    self.player.set_video_adjustment(
+                        key, float(self.settings.value(f"video_{key}", 1.0))
+                    )
+        except (RuntimeError, ValueError) as error:
+            self._show_error(f"Could not apply saved video settings: {error}")
 
     def _seek(self) -> None:
         # Position is obtained from the slider's normalized value and duration.
@@ -580,14 +971,39 @@ class MainWindow(QMainWindow):
             self._show_error(f"Could not read playlist: {error}")
 
     def open_settings(self) -> None:
-        dialog = SettingsDialog(self.settings, self._audio_devices(), self)
+        dialog = SettingsDialog(
+            self.settings,
+            self._audio_devices(),
+            self,
+            tray_available=self.tray_icon is not None,
+        )
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self.player.set_subtitle_delay(int(self.settings.value("subtitle_delay", 0)))
+            self.player.set_audio_delay(int(self.settings.value("audio_delay", 0)))
             self.player.set_video_output(str(self.settings.value("audio_device", "")))
             self.player.set_subtitle_size(int(self.settings.value("subtitle_size", 22)))
-            self.statusBar().showMessage(
-                "Subtitle font size applies to media opened from now on.", 5000
+            self.player.set_subtitle_style(
+                str(self.settings.value("subtitle_color", "#FFFFFF")),
+                int(self.settings.value("subtitle_margin", 24)),
             )
+            self._keep_awake_enabled = (
+                self.settings.value("keep_awake", "false") in (True, "true", "1")
+            )
+            if not self._keep_awake_enabled:
+                self._update_keep_awake(False)
+            if sys.platform == "win32":
+                try:
+                    set_startup_registration(
+                        self.settings.value("start_with_windows", "false")
+                        in (True, "true", "1")
+                    )
+                except (OSError, RuntimeError) as error:
+                    self.settings.setValue("start_with_windows", False)
+                    self._show_error(f"Could not update Windows startup setting: {error}")
+            self.statusBar().showMessage(
+                "Subtitle styling applies to media opened from now on.", 5000
+            )
+            self._configure_global_hotkeys()
             self._refresh_shortcuts()
 
     def _audio_devices(self) -> list[tuple[str, str]]:
@@ -652,6 +1068,28 @@ class MainWindow(QMainWindow):
         self.settings.setValue("recent_files", json.dumps(values[:10]))
         self._refresh_recent_menu()
 
+    def _read_resume_positions(self) -> dict[str, int]:
+        try:
+            value = self.settings.value("resume_positions", "{}")
+            entries = value if isinstance(value, dict) else json.loads(str(value))
+        except (TypeError, json.JSONDecodeError):
+            LOGGER.warning("Ignoring invalid saved playback positions")
+            return {}
+        if not isinstance(entries, dict):
+            return {}
+        return {
+            path: int(position)
+            for path, position in entries.items()
+            if isinstance(path, str) and isinstance(position, int) and position > 0
+        }
+
+    def _save_resume_positions(self) -> None:
+        if len(self._resume_positions) > 100:
+            self._resume_positions = dict(list(self._resume_positions.items())[-100:])
+        self.settings.setValue(
+            "resume_positions", json.dumps(self._resume_positions, ensure_ascii=False)
+        )
+
     def _refresh_recent_menu(self) -> None:
         if not hasattr(self, "recent_menu"):
             return
@@ -681,13 +1119,55 @@ class MainWindow(QMainWindow):
         preset = str(self.settings.value("equalizer_preset", "Flat"))
         if self.equalizer_combo.findText(preset) >= 0:
             self.equalizer_combo.setCurrentText(preset)
+        self.loop_current_action.setChecked(
+            self.settings.value("loop_current", "false") in (True, "true", "1")
+        )
+        self.repeat_playlist_action.setChecked(
+            self.settings.value("repeat_playlist", "false") in (True, "true", "1")
+        )
+
+    def changeEvent(self, event) -> None:
+        if (
+            event.type() == QEvent.Type.WindowStateChange
+            and self.isMinimized()
+            and self.tray_icon is not None
+            and self.settings.value("minimize_to_tray", "false") in (True, "true", "1")
+            and not self._quit_requested
+        ):
+            self.hide()
+        super().changeEvent(event)
 
     def closeEvent(self, event) -> None:
+        if (
+            not self._quit_requested
+            and self.tray_icon is not None
+            and self.settings.value("minimize_to_tray", "false") in (True, "true", "1")
+        ):
+            self._persist_state()
+            self.hide()
+            event.ignore()
+            return
+        self._persist_state()
+        if hasattr(self, "_global_hotkeys"):
+            self._global_hotkeys.unregister()
+        if self._keep_awake_active:
+            try:
+                set_keep_awake(False)
+            except (OSError, RuntimeError):
+                LOGGER.exception("Could not restore Windows power state on exit")
+            self._keep_awake_active = False
+        self.player.close()
+        super().closeEvent(event)
+
+    def _persist_state(self) -> None:
+        if self.player.current_path and self.player.current_time_ms:
+            self._resume_positions[str(self.player.current_path)] = self.player.current_time_ms
+        self._save_resume_positions()
         self.settings.setValue("geometry", self.saveGeometry())
         self.settings.setValue("queue", json.dumps(self.playlist.paths()))
         self.settings.setValue("volume", self.volume_slider.value())
-        self.player.close()
-        super().closeEvent(event)
+        self.settings.setValue("loop_current", self.loop_current_action.isChecked())
+        self.settings.setValue("repeat_playlist", self.repeat_playlist_action.isChecked())
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():

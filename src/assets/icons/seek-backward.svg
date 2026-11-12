@@ -1,5 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-  <path d="M4.4 10A8.1 8.1 0 1 1 4 14" fill="none" stroke="#F0F7FF" stroke-linecap="round" stroke-width="1.8"/>
-  <path d="M4.4 4.8V10h5.2" fill="none" stroke="#F0F7FF" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/>
-  <text x="12" y="14.8" text-anchor="middle" fill="#F0F7FF" font-family="Segoe UI, sans-serif" font-size="7.5" font-weight="700">10</text>
-</svg>

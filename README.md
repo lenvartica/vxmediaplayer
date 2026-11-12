@@ -9,13 +9,16 @@
 
 ## Features
 
-- LibVLC playback for MP4, MP3, M4A, MKV, AVI, FLAC, WAV, AAC, OGG, MOV, WMV, WebM, 3GP, M4V, TS, and Opus.
-- Dark PyQt6 interface, normalized seeking, playback queue, filtering, drag-and-drop, M3U8 playlists, and recent-file history.
+- LibVLC playback for MP4, MKV, AVI, MOV, WMV, FLV, WebM, 3GP, MP3, WAV, FLAC, AAC, OGG, M4A, and additional VLC-supported formats. Files play directly without conversion.
+- Hardware decoding is requested from LibVLC when available. 4K, 8K, and HDR playback depends on the source codec, VLC build, GPU, drivers, and display; it cannot be guaranteed by the application.
+- Clean white-and-orange PyQt6 interface, normalized seeking, playback queue, filtering, drag-and-drop, M3U8 playlists, and recent-file history.
 - Volume slider from 0–300%, using LibVLC volume up to 200% and equalizer preamp gain above that. A compressor filter is enabled to reduce peaks; device and plugin limits still apply. High volume can damage hearing.
 - Native 10-band equalizer with Bass Boost, Vocal, Party, Flat, Rock, and Pop curves.
 - Playback speed from 0.25x to 4x; pitch preservation depends on LibVLC's `scaletempo` plugin.
-- Adjacent subtitle detection, SRT/VTT and other LibVLC subtitle files, and subtitle delay adjustment from -5000 to +5000 ms.
-- Always-on-top compact picture-in-picture window mode and configurable application keyboard shortcuts.
+- Frame stepping, frame capture, repeat-one/repeat-playlist, A-B repeat, and saved resume positions.
+- Audio/video/subtitle track selection, adjacent and external subtitles, subtitle style, and independent audio/subtitle delay adjustment.
+- Video zoom, aspect ratio, crop, rotation, brightness, contrast, saturation, gamma, and deinterlacing controls.
+- Always-on-top mode, compact picture-in-picture, stereo/channel output choices, configurable keyboard shortcuts, system-tray controls, and Windows media-key integration.
 - No analytics or telemetry in the application.
 
 ## Quick start
@@ -24,7 +27,7 @@ Python 3.11 or newer and a LibVLC runtime are required. The Windows release work
 
 ### Windows installer
 
-Download and run `VxPlayer-Setup.exe` from the [latest release](https://github.com/lenvartica/vxmediaplayer/releases/latest). The system installer places VxPlayer under Program Files, adds a Start menu shortcut, offers a desktop shortcut, and registers a Windows uninstaller. Windows may ask for administrator approval. The standalone `VxPlayer.exe` remains available for portable use.
+Download and run `VxPlayer-Setup.exe` from the [latest release](https://github.com/lenvartica/vxmediaplayer/releases/latest). The setup wizard shows installation progress and lets you choose the destination folder. It can add Start menu/desktop shortcuts, register media types for Windows Default apps, and add an Explorer right-click action. Windows does not permit installers to silently override the user's default-app selections. Windows may ask for administrator approval. The standalone `VxPlayer.exe` remains available for portable use.
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -40,17 +43,18 @@ On Linux, install your distribution's VLC/LibVLC packages before launching. If t
 - **Space**: play or pause; **Left / Right**: seek 10 seconds; **Ctrl+Left / Ctrl+Right**: previous / next queue item.
 - **M**: mute / restore volume; **F**: fullscreen; **Esc**: leave fullscreen; **S**: stop.
 - Double-click an item in the queue to play it. Queue items can be reordered, filtered, removed, and saved as `.m3u8`.
-- Use the speed and equalizer menus, volume slider, or subtitle button for playback adjustments.
-- Settings provides audio device, subtitle delay/font-size preference, and configurable playback, seeking, queue, stop, mute, and fullscreen shortcuts. Shortcuts apply while VxPlayer is active; OS-wide global hotkeys are not implemented.
+- Playback menu includes frame stepping, speed changes, A-B repeat, repeat-current, and repeat-playlist.
+- Video menu includes capture, always-on-top, and video adjustments; Audio and Subtitles menus expose track selection.
+- Settings provides audio output, audio/subtitle synchronization, subtitle appearance, and configurable keyboard shortcuts. Windows options also include global hotkeys/media keys, minimize-to-tray, start-at-sign-in, and keeping the display awake during playback.
 
 ## Project layout
 
 ```text
 .github/workflows/  Windows/Linux build, installer, and GitHub Pages deployment
 installer/          Inno Setup system installer definition
-src/assets/         Logo, icons, and dark-mode QSS theme
+src/assets/         Flat orange-and-white app mark and light QSS theme
 src/engine/         LibVLC wrapper and equalizer
-src/ui/             Player, queue, and settings interfaces
+src/ui/             Player, queue, settings, and Windows desktop integration
 docs/               GitHub Pages product site
 requirements.txt    Pinned Python runtime/build dependencies
 ```
@@ -65,7 +69,7 @@ The landing page and badges point to `lenvartica/vxmediaplayer`. Update those li
 
 ## Known platform constraints
 
-LibVLC's native output volume API documents a 0–200 range. VxPlayer adds up to 3.52 dB of digital preamp gain for the 200–300% portion of its slider and enables the VLC compressor audio filter to reduce peaks. Effective gain depends on available VLC audio-filter plugins and the device; it cannot guarantee clipping-free output for every source or listening setup. Picture-in-picture is an always-on-top compact main window, not a separate video renderer.
+LibVLC's native output volume API documents a 0–200 range. VxPlayer adds up to 3.52 dB of digital preamp gain for the 200–300% portion of its slider and enables the VLC compressor audio filter to reduce peaks. Effective gain depends on available VLC audio-filter plugins and the device; it cannot guarantee clipping-free output for every source or listening setup. VLC supplies a 10-band native equalizer; gapless playback, crossfade, dedicated spatial-audio processing, and a separate audio visualizer are not currently implemented. Picture-in-picture is an always-on-top compact main window, not a separate video renderer.
 
 ## License
 
