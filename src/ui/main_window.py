@@ -221,12 +221,12 @@ class MainWindow(QMainWindow):
         self.splitter = splitter
         self.video_surface = VideoSurface()
         self.playlist = PlaylistWidget()
-        self.playlist.setMinimumWidth(250)
+        self.playlist.setMinimumWidth(180)
         splitter.addWidget(self.video_surface)
         splitter.addWidget(self.playlist)
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 0)
-        splitter.setSizes([900, 300])
+        splitter.setSizes([1040, 204])
         outer.addWidget(splitter, 1)
 
         self.position_slider = QSlider(Qt.Orientation.Horizontal)

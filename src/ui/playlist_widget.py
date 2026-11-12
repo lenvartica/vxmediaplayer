@@ -8,7 +8,6 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
-    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -54,14 +53,11 @@ class PlaylistWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("playlistPanel")
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Filter queue...")
         self.list_widget = _QueueListWidget()
         self.list_widget.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.list_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.list_widget.itemDoubleClicked.connect(self._play_item)
         self.list_widget.files_dropped.connect(self._handle_dropped_paths)
-        self.search.textChanged.connect(self._filter)
         self.add_button = QPushButton("Add")
         self.remove_button = QPushButton("Remove")
         self.clear_button = QPushButton("Clear")
@@ -70,7 +66,6 @@ class PlaylistWidget(QWidget):
         buttons.addWidget(self.remove_button)
         buttons.addWidget(self.clear_button)
         layout = QVBoxLayout(self)
-        layout.addWidget(self.search)
         layout.addWidget(self.list_widget, 1)
         layout.addLayout(buttons)
         self.setAcceptDrops(True)
@@ -117,12 +112,6 @@ class PlaylistWidget(QWidget):
 
     def _play_item(self, item: QListWidgetItem) -> None:
         self.play_requested.emit(item.data(Qt.ItemDataRole.UserRole))
-
-    def _filter(self, text: str) -> None:
-        query = text.casefold()
-        for index in range(self.list_widget.count()):
-            item = self.list_widget.item(index)
-            item.setHidden(query not in item.text().casefold())
 
     def _paths_from_event(self, event: object) -> list[str]:
         urls = event.mimeData().urls()  # type: ignore[attr-defined]
