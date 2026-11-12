@@ -68,15 +68,30 @@ QPushButton#primaryButton {
 }
 QPushButton#primaryButton:hover { background: #e87413; }
 QPushButton#transportButton {
-    min-height: 34px;
-    padding: 5px 8px;
-    background: transparent;
-    border-color: transparent;
+    min-width: 38px;
+    max-width: 38px;
+    min-height: 38px;
+    max-height: 38px;
+    padding: 0;
+    background: #ffffff;
+    border: 1px solid #c9c9c9;
+    border-radius: 19px;
 }
 QPushButton#transportButton:hover {
     background: #ffe4cc;
     border-color: #e9a365;
 }
+QPushButton#playButton {
+    min-width: 42px;
+    max-width: 42px;
+    min-height: 42px;
+    max-height: 42px;
+    padding: 0;
+    background: #f58220;
+    border: 1px solid #df6e12;
+    border-radius: 21px;
+}
+QPushButton#playButton:hover { background: #e87413; }
 QSlider::groove:horizontal {
     height: 5px;
     background: #c9c9c9;

@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QHBoxLayout,
     QInputDialog,
@@ -42,6 +43,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QPushButton,
     QDoubleSpinBox,
+    QScrollArea,
     QSlider,
     QSplitter,
     QStatusBar,
@@ -238,8 +240,17 @@ class MainWindow(QMainWindow):
         seek_row.addWidget(self.position_label)
         outer.addWidget(self.seek_widget)
 
-        self.transport_widget = QWidget()
-        controls = QHBoxLayout(self.transport_widget)
+        self.transport_widget = QScrollArea()
+        self.transport_widget.setWidgetResizable(True)
+        self.transport_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self.transport_widget.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.transport_widget.setFrameShape(QFrame.Shape.NoFrame)
+        controls_content = QWidget()
+        controls = QHBoxLayout(controls_content)
         self.previous_button = QPushButton()
         self.previous_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSkipBackward)
@@ -261,7 +272,7 @@ class MainWindow(QMainWindow):
         self.play_button.setText("")
         self.play_button.setToolTip("Play or pause (Space)")
         self.play_button.setAccessibleName("Play or pause")
-        self.play_button.setObjectName("primaryButton")
+        self.play_button.setObjectName("playButton")
         self.next_button = QPushButton()
         self.next_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSkipForward)
@@ -336,9 +347,11 @@ class MainWindow(QMainWindow):
             self.pip_button,
         ):
             controls.addWidget(widget)
-        outer.addWidget(self.transport_widget)
+
         self.audio_controls_widget = QWidget()
         audio_controls = QHBoxLayout(self.audio_controls_widget)
+        audio_controls.setContentsMargins(0, 0, 0, 0)
+        audio_controls.setSpacing(6)
         for widget in (
             self.equalizer_combo,
             self.equalizer_button,
@@ -347,8 +360,12 @@ class MainWindow(QMainWindow):
             self.volume_slider,
         ):
             audio_controls.addWidget(widget)
-        audio_controls.addStretch(1)
-        outer.addWidget(self.audio_controls_widget)
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(6)
+        controls.addWidget(self.audio_controls_widget)
+        controls.addStretch(1)
+        self.transport_widget.setWidget(controls_content)
+        outer.addWidget(self.transport_widget)
         self.setCentralWidget(root)
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage(
