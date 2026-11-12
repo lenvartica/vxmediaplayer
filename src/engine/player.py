@@ -25,18 +25,29 @@ SUBTITLE_SUFFIXES = {".srt", ".vtt", ".ass", ".ssa", ".sub"}
 
 
 def create_vlc_instance() -> Optional[vlc.Instance]:
-    return vlc.Instance(
-        "--no-video-title-show",
-        "--quiet",
-        "--avcodec-hw=any",
-        "--audio-filter=compressor,scaletempo",
-        "--compressor-threshold=-10.0",
-        "--compressor-ratio=8.0",
-        "--compressor-attack=25.0",
-        "--compressor-release=100.0",
-        "--compressor-knee=2.5",
-        "--compressor-makeup-gain=2.0",
-    )
+    try:
+        instance = vlc.Instance(
+            "--no-video-title-show",
+            "--quiet",
+            "--avcodec-hw=any",
+            "--audio-filter=compressor,scaletempo",
+            "--compressor-threshold=-10.0",
+            "--compressor-ratio=8.0",
+            "--compressor-attack=25.0",
+            "--compressor-release=100.0",
+            "--compressor-knee=2.5",
+            "--compressor-makeup-gain=2.0",
+        )
+    except vlc.VLCException as error:
+        LOGGER.warning(
+            "LibVLC rejected optional playback settings; retrying with defaults: %s",
+            error,
+        )
+        return vlc.Instance("--no-video-title-show", "--quiet")
+    if instance is None:
+        LOGGER.warning("LibVLC rejected optional playback settings; retrying with defaults.")
+        return vlc.Instance("--no-video-title-show", "--quiet")
+    return instance
 
 
 class Player(QObject):

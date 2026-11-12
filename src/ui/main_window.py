@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shutil
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -19,6 +22,7 @@ from PyQt6.QtCore import (
     QThread,
     QTimer,
     pyqtSignal,
+    pyqtSlot,
 )
 from PyQt6.QtGui import QAction, QIcon, QKeySequence, QMouseEvent, QPainter, QPixmap
 from PyQt6.QtSvg import QSvgRenderer
@@ -84,7 +88,9 @@ class VideoSurface(QWidget):
         self._press_position: QPoint | None = None
         self.setObjectName("videoSurface")
         self.setMinimumSize(480, 300)
-        self.setToolTip("Click the center to play or pause; click either edge to skip 10 seconds.")
+        self.setToolTip(
+            "Click the center to play or pause; click the left or right side to skip 10 seconds."
+        )
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -99,7 +105,7 @@ class VideoSurface(QWidget):
             <= QApplication.startDragDistance()
         ):
             x = event.position().x()
-            edge = self.width() * 0.18
+            edge = self.width() * 0.25
             if x < edge:
                 self.interaction.emit("backward")
             elif x >= self.width() - edge:
@@ -136,6 +142,11 @@ class MainWindow(QMainWindow):
         self._last_unmuted_volume = 100
         self._pip = False
         self._normal_geometry = None
+        self._fullscreen_ui_active = False
+        self._fullscreen_layout_state: tuple[tuple[int, int, int, int], int] | None = None
+        self._fullscreen_visibility_state: tuple[bool, bool, bool] | None = None
+        self._fullscreen_splitter_sizes: list[int] | None = None
+        self._fullscreen_splitter_handle_width: int | None = None
         self._last_position_update = 0.0
         self._last_player_state = ""
         self._loop_a: int | None = None
@@ -188,8 +199,10 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("root")
         outer = QVBoxLayout(root)
+        self.root_layout = outer
         outer.setContentsMargins(18, 14, 18, 16)
-        header = QHBoxLayout()
+        self.header_widget = QWidget()
+        header = QHBoxLayout(self.header_widget)
         brand = QLabel("VxPlayer")
         brand.setObjectName("brand")
         self.track_label = QLabel("Ready when you are")
@@ -202,9 +215,10 @@ class MainWindow(QMainWindow):
         self.subtitle_button = QPushButton("Subtitles")
         header.addWidget(self.subtitle_button)
         header.addWidget(self.open_button)
-        outer.addLayout(header)
+        outer.addWidget(self.header_widget)
 
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter = splitter
         self.video_surface = VideoSurface()
         self.playlist = PlaylistWidget()
         self.playlist.setMinimumWidth(250)
@@ -218,49 +232,68 @@ class MainWindow(QMainWindow):
         self.position_slider = QSlider(Qt.Orientation.Horizontal)
         self.position_slider.setRange(0, 1000)
         self.position_label = QLabel("00:00 / 00:00")
-        seek_row = QHBoxLayout()
+        self.seek_widget = QWidget()
+        seek_row = QHBoxLayout(self.seek_widget)
         seek_row.addWidget(self.position_slider, 1)
         seek_row.addWidget(self.position_label)
-        outer.addLayout(seek_row)
+        outer.addWidget(self.seek_widget)
 
-        controls = QHBoxLayout()
-        self.previous_button = QPushButton("Previous")
+        self.transport_widget = QWidget()
+        controls = QHBoxLayout(self.transport_widget)
+        self.previous_button = QPushButton()
         self.previous_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSkipBackward)
         )
+        self.previous_button.setText("")
         self.previous_button.setToolTip("Previous item (Ctrl+Left)")
-        self.seek_back_button = QPushButton("-10")
+        self.previous_button.setAccessibleName("Previous item")
+        self.seek_back_button = QPushButton()
         self.seek_back_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSeekBackward)
         )
+        self.seek_back_button.setText("")
         self.seek_back_button.setToolTip("Back 10 seconds (Left)")
-        self.play_button = QPushButton("Play")
+        self.seek_back_button.setAccessibleName("Back 10 seconds")
+        self.play_button = QPushButton()
         self.play_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
+        self.play_button.setText("")
         self.play_button.setToolTip("Play or pause (Space)")
+        self.play_button.setAccessibleName("Play or pause")
         self.play_button.setObjectName("primaryButton")
-        self.next_button = QPushButton("Next")
+        self.next_button = QPushButton()
         self.next_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSkipForward)
         )
+        self.next_button.setText("")
         self.next_button.setToolTip("Next item (Ctrl+Right)")
-        self.seek_forward_button = QPushButton("+10")
+        self.next_button.setAccessibleName("Next item")
+        self.seek_forward_button = QPushButton()
         self.seek_forward_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSeekForward)
         )
+        self.seek_forward_button.setText("")
         self.seek_forward_button.setToolTip("Forward 10 seconds (Right)")
-        self.stop_button = QPushButton("Stop")
+        self.seek_forward_button.setAccessibleName("Forward 10 seconds")
+        self.stop_button = QPushButton()
         self.stop_button.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
+        self.stop_button.setText("")
         self.stop_button.setToolTip("Stop playback (S)")
+        self.stop_button.setAccessibleName("Stop playback")
         self.speed_combo = QComboBox()
         self.speed_combo.addItems(["0.25x", "0.5x", "0.75x", "1.0x", "1.25x", "1.5x", "2.0x", "3.0x", "4.0x"])
         self.speed_combo.setCurrentText("1.0x")
         self.equalizer_combo = QComboBox()
         self.equalizer_combo.addItems(PRESETS)
-        self.equalizer_button = QPushButton("EQ bands")
+        self.equalizer_button = QPushButton()
+        self.equalizer_button.setIcon(
+            QIcon(_svg_pixmap(ASSET_DIR / "equalizer.svg", 24))
+        )
+        self.equalizer_button.setToolTip("Equalizer bands")
+        self.equalizer_button.setAccessibleName("Equalizer bands")
         self.volume_label = QLabel("100%")
         self.volume_slider = QSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 300)
@@ -275,7 +308,10 @@ class MainWindow(QMainWindow):
         )
         self.mute_button.setToolTip("Mute or restore volume (M)")
         self.mute_button.setAccessibleName("Mute")
-        self.pip_button = QPushButton("PiP")
+        self.pip_button = QPushButton()
+        self.pip_button.setIcon(QIcon(_svg_pixmap(ASSET_DIR / "pip.svg", 24)))
+        self.pip_button.setToolTip("Enter picture-in-picture")
+        self.pip_button.setAccessibleName("Enter picture-in-picture")
         for button in (
             self.previous_button,
             self.seek_back_button,
@@ -283,6 +319,8 @@ class MainWindow(QMainWindow):
             self.next_button,
             self.stop_button,
             self.mute_button,
+            self.equalizer_button,
+            self.pip_button,
         ):
             button.setObjectName("transportButton")
             button.setIconSize(QSize(18, 18))
@@ -298,8 +336,9 @@ class MainWindow(QMainWindow):
             self.pip_button,
         ):
             controls.addWidget(widget)
-        outer.addLayout(controls)
-        audio_controls = QHBoxLayout()
+        outer.addWidget(self.transport_widget)
+        self.audio_controls_widget = QWidget()
+        audio_controls = QHBoxLayout(self.audio_controls_widget)
         for widget in (
             self.equalizer_combo,
             self.equalizer_button,
@@ -309,11 +348,11 @@ class MainWindow(QMainWindow):
         ):
             audio_controls.addWidget(widget)
         audio_controls.addStretch(1)
-        outer.addLayout(audio_controls)
+        outer.addWidget(self.audio_controls_widget)
         self.setCentralWidget(root)
         self.setStatusBar(QStatusBar())
         self.statusBar().showMessage(
-            "Click the video center to play or pause; click either edge to skip 10 seconds."
+            "Click the video center to play or pause; click the left or right side to skip 10 seconds."
         )
         self.open_button.clicked.connect(self.open_files)
         self.subtitle_button.clicked.connect(self.open_subtitle)
@@ -523,9 +562,7 @@ class MainWindow(QMainWindow):
         worker = UpdateWorker(operation, update)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.completed.connect(
-            lambda result, task=operation: self._update_task_completed(task, result)
-        )
+        worker.completed.connect(self._update_task_completed)
         worker.failed.connect(self._update_task_failed)
         worker.completed.connect(thread.quit)
         worker.failed.connect(thread.quit)
@@ -535,6 +572,7 @@ class MainWindow(QMainWindow):
         self._update_worker = worker
         thread.start()
 
+    @pyqtSlot(str, object)
     def _update_task_completed(self, operation: str, result: object) -> None:
         if operation == "check":
             if result is None:
@@ -553,11 +591,16 @@ class MainWindow(QMainWindow):
             update = result
             version = update["version"]
             channel = "continuous build" if update.get("prerelease") else "release"
+            action = (
+                "Download and apply only the changed app files?"
+                if update.get("kind") == "incremental"
+                else "Download the one-time setup to install all modules?"
+            )
             answer = QMessageBox.question(
                 self,
                 "VxPlayer update available",
                 f"VxPlayer {version} ({channel}) is available.\n\n"
-                "Download and verify the installer now?",
+                f"{action}\nThe update files will be verified before installation.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes,
             )
@@ -566,17 +609,64 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Preparing VxPlayer {version} update...")
             return
 
-        installer = str(result)
-        process = QProcess(self)
-        process.setProgram(installer)
-        if not process.startDetached():
-            self._show_error("The verified update installer could not be started.")
+        if not isinstance(result, dict):
+            self._show_error("The verified update result is invalid.")
+            return
+        if result.get("kind") == "installer":
+            installer_path = result.get("path")
+            if not isinstance(installer_path, str):
+                self._show_error("The verified installer path is invalid.")
+                return
+            process = QProcess(self)
+            process.setProgram(installer_path)
+            started = bool(process.startDetached())
+        elif result.get("kind") == "incremental":
+            plan_path = result.get("plan")
+            if not isinstance(plan_path, str):
+                self._show_error("The verified incremental update plan is invalid.")
+                return
+            started = self._start_incremental_updater(plan_path)
+        else:
+            self._show_error("The verified update has an unknown installation mode.")
+            return
+        if not started:
+            self._show_error("The verified VxPlayer update could not be started.")
             return
         self._quit_requested = True
         if self.tray_icon is not None:
             self.tray_icon.hide()
         QTimer.singleShot(0, self.close)
 
+    def _start_incremental_updater(self, plan_path: str) -> bool:
+        if sys.platform != "win32" or not getattr(sys, "frozen", False):
+            self._show_error("Incremental updates require the installed Windows version of VxPlayer.")
+            return False
+        install_root = Path(sys.executable).resolve().parent
+        updater = install_root / "VxPlayerUpdater.exe"
+        if not updater.is_file():
+            self._show_error("The installed update helper is missing. Run the full setup once to repair VxPlayer.")
+            return False
+        helper_directory = Path(tempfile.mkdtemp(prefix="VxPlayer-Update-"))
+        helper_copy = helper_directory / updater.name
+        try:
+            shutil.copy2(updater, helper_copy)
+        except OSError as error:
+            shutil.rmtree(helper_directory, ignore_errors=True)
+            self._show_error(f"Could not prepare the update helper: {error}")
+            return False
+
+        arguments = ["--apply", plan_path, str(os.getpid()), str(install_root)]
+        if self.player.current_path is not None:
+            arguments.append(str(self.player.current_path))
+        process = QProcess(self)
+        process.setProgram(str(helper_copy))
+        process.setArguments(arguments)
+        started = bool(process.startDetached())
+        if not started:
+            shutil.rmtree(helper_directory, ignore_errors=True)
+        return started
+
+    @pyqtSlot(str)
     def _update_task_failed(self, message: str) -> None:
         if self._silent_update_check:
             self._silent_update_check = False
@@ -600,7 +690,7 @@ class MainWindow(QMainWindow):
         if update is not None:
             self._pending_update_download = None
             self.statusBar().showMessage(
-                f"Downloading and verifying VxPlayer {update['version']}..."
+                f"Downloading and verifying changed files for VxPlayer {update['version']}..."
             )
             self._start_update_task("download", update)
             return
@@ -686,7 +776,9 @@ class MainWindow(QMainWindow):
         self._keep_awake_active = should_keep_awake
 
     def open_files(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(self, "Open media", "", MEDIA_FILTER)
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Open media", "", f"{MEDIA_FILTER};;All files (*)"
+        )
         if paths:
             self.playlist.add_paths(paths)
             self.play_path(paths[0])
@@ -711,7 +803,11 @@ class MainWindow(QMainWindow):
 
     def _handle_dropped_paths(self, paths: list[str]) -> None:
         subtitles = [path for path in paths if Path(path).suffix.lower() in SUBTITLE_SUFFIXES]
-        media = [path for path in paths if Path(path).suffix.lower() in SUPPORTED_MEDIA]
+        media = [
+            path
+            for path in paths
+            if Path(path).suffix.lower() not in SUBTITLE_SUFFIXES and Path(path).is_file()
+        ]
         if media:
             self.play_path(media[0])
         if subtitles and self.player.current_path:
@@ -759,10 +855,60 @@ class MainWindow(QMainWindow):
             self.showNormal()
         else:
             self.showFullScreen()
+        self._set_fullscreen_ui(self.isFullScreen())
 
     def _exit_fullscreen(self) -> None:
         if self.isFullScreen():
-            self.showNormal()
+            self._toggle_fullscreen()
+
+    def _set_fullscreen_ui(self, fullscreen: bool) -> None:
+        if fullscreen == self._fullscreen_ui_active:
+            return
+        self._fullscreen_ui_active = fullscreen
+        if fullscreen:
+            margins = self.root_layout.contentsMargins()
+            self._fullscreen_layout_state = (
+                (margins.left(), margins.top(), margins.right(), margins.bottom()),
+                self.root_layout.spacing(),
+            )
+            self._fullscreen_visibility_state = (
+                self.playlist.isVisible(),
+                self.menuBar().isVisible(),
+                self.statusBar().isVisible(),
+            )
+            self._fullscreen_splitter_sizes = self.splitter.sizes()
+            self._fullscreen_splitter_handle_width = self.splitter.handleWidth()
+            self.header_widget.hide()
+            self.seek_widget.hide()
+            self.transport_widget.hide()
+            self.audio_controls_widget.hide()
+            self.playlist.hide()
+            self.menuBar().hide()
+            self.statusBar().hide()
+            self.splitter.setHandleWidth(0)
+            self.root_layout.setContentsMargins(0, 0, 0, 0)
+            self.root_layout.setSpacing(0)
+            self.video_surface.setStyleSheet("border: 0;")
+            return
+
+        if self._fullscreen_layout_state is not None:
+            margins, spacing = self._fullscreen_layout_state
+            self.root_layout.setContentsMargins(*margins)
+            self.root_layout.setSpacing(spacing)
+        if self._fullscreen_splitter_handle_width is not None:
+            self.splitter.setHandleWidth(self._fullscreen_splitter_handle_width)
+        self.video_surface.setStyleSheet("")
+        self.header_widget.show()
+        self.seek_widget.show()
+        self.transport_widget.show()
+        self.audio_controls_widget.show()
+        if self._fullscreen_visibility_state is not None:
+            playlist_visible, menu_visible, status_visible = self._fullscreen_visibility_state
+            self.playlist.setVisible(playlist_visible)
+            self.menuBar().setVisible(menu_visible)
+            self.statusBar().setVisible(status_visible)
+        if self._fullscreen_splitter_sizes is not None:
+            self.splitter.setSizes(self._fullscreen_splitter_sizes)
 
     def _show_shortcuts(self) -> None:
         def shortcut(action: QAction) -> str:
@@ -987,7 +1133,12 @@ class MainWindow(QMainWindow):
     def _update_state(self, state: str) -> None:
         playing = state == "playing"
         self._update_keep_awake(playing)
-        self.play_button.setText("Pause" if playing else "Play")
+        if state == "error" and self._last_player_state != "error":
+            name = self.player.current_path.name if self.player.current_path else "media"
+            self._show_error(
+                f"LibVLC could not play {name}. "
+                "The file or one of its codecs may be unsupported."
+            )
         icon = (
             QStyle.StandardPixmap.SP_MediaPause
             if playing
@@ -1061,10 +1212,10 @@ class MainWindow(QMainWindow):
         )
         if not paths:
             return
-        try:
-            index = paths.index(current) if current else 0
-        except ValueError:
-            index = 0
+        if current not in paths:
+            index = -1 if step > 0 else 0
+        else:
+            index = paths.index(current)
         self.play_path(paths[(index + step) % len(paths)])
 
     def remove_selected(self) -> None:
@@ -1185,14 +1336,19 @@ class MainWindow(QMainWindow):
             self.resize(560, 340)
             self.show()
             self._pip = True
-            self.pip_button.setText("Exit PiP")
+            self.pip_button.setToolTip("Exit picture-in-picture")
+            self.pip_button.setAccessibleName("Exit picture-in-picture")
         else:
-            self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+            self.setWindowFlag(
+                Qt.WindowType.WindowStaysOnTopHint,
+                self.always_on_top_action.isChecked(),
+            )
             if self._normal_geometry:
                 self.restoreGeometry(self._normal_geometry)
             self.show()
             self._pip = False
-            self.pip_button.setText("PiP")
+            self.pip_button.setToolTip("Enter picture-in-picture")
+            self.pip_button.setAccessibleName("Enter picture-in-picture")
 
     def _add_recent(self, path: str) -> None:
         recent = _read_string_list_setting(self.settings, "recent_files")
@@ -1261,6 +1417,11 @@ class MainWindow(QMainWindow):
     def changeEvent(self, event) -> None:
         if (
             event.type() == QEvent.Type.WindowStateChange
+            and hasattr(self, "root_layout")
+        ):
+            self._set_fullscreen_ui(self.isFullScreen())
+        if (
+            event.type() == QEvent.Type.WindowStateChange
             and self.isMinimized()
             and self.tray_icon is not None
             and self.settings.value("minimize_to_tray", "false") in (True, "true", "1")
@@ -1314,9 +1475,10 @@ class MainWindow(QMainWindow):
 
     def dropEvent(self, event) -> None:
         paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
-        self._handle_dropped_paths(paths)
         if paths:
             self.playlist.add_paths(paths)
+        self._handle_dropped_paths(paths)
+        if paths:
             event.acceptProposedAction()
 
     def _show_error(self, message: str) -> None:

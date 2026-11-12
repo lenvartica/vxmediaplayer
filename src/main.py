@@ -26,7 +26,10 @@ def main() -> int:
     app.setApplicationName("VxPlayer")
     app.setOrganizationName("Decan Konnect")
     app.setApplicationVersion(APP_VERSION)
-    stylesheet = Path(__file__).parent / "assets" / "style.qss"
+    bundle_dir = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    stylesheet = bundle_dir / "assets" / "style.qss"
+    if not stylesheet.is_file():
+        stylesheet = Path(__file__).resolve().parent / "assets" / "style.qss"
     if stylesheet.exists():
         app.setStyleSheet(stylesheet.read_text(encoding="utf-8"))
     window = MainWindow()

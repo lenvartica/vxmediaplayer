@@ -57,7 +57,7 @@ StatusExtractFiles=Installing VxPlayer application files...
 #ifdef OnlineSetup
 Source: "{#PayloadUrl}"; DestName: "VxPlayer-windows-x64.zip"; DestDir: "{app}"; Hash: "{#PayloadSha256}"; ExternalSize: {#PayloadSize}; Flags: external download extractarchive ignoreversion
 #else
-Source: "..\dist\VxPlayer.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\VxPlayer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
 [Icons]

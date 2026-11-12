@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from engine.player import SUPPORTED_MEDIA
+from engine.player import SUBTITLE_SUFFIXES
 
 
 class _QueueListWidget(QListWidget):
@@ -83,7 +83,7 @@ class PlaylistWidget(QWidget):
         }
         for item in paths:
             path = Path(item).expanduser().resolve()
-            if path.suffix.lower() not in SUPPORTED_MEDIA or not path.is_file():
+            if path.suffix.lower() in SUBTITLE_SUFFIXES or not path.is_file():
                 continue
             value = str(path)
             if value in existing:

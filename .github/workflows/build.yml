@@ -38,6 +38,8 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+      - name: Test incremental update helper
+        run: python -m unittest discover -s tests -v
       - name: Set Windows application version
         if: runner.os == 'Windows'
         shell: pwsh
@@ -79,26 +81,41 @@ jobs:
           choco install innosetup --no-progress -y
           $vlc = "${env:ProgramFiles}\VideoLAN\VLC"
           if (-not (Test-Path "$vlc\libvlc.dll")) { throw "LibVLC was not installed at $vlc" }
-          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+          python -m PyInstaller --noconfirm --clean --onedir --noarchive --windowed `
             --name VxPlayer `
             --icon src/assets/vxplayer.ico `
-            --add-data "$vlc;vlc" `
             --add-data "src/assets;assets" `
             --runtime-hook src/vlc_runtime_hook.py `
             src/main.py
-          Copy-Item dist\VxPlayer.exe "$env:RUNNER_TEMP\VxPlayer.exe"
+          python -m PyInstaller --noconfirm --clean --onefile --windowed `
+            --name VxPlayerUpdater `
+            src/updater_helper.py
+          $bundleDir = Join-Path $PWD "dist\VxPlayer"
+          $bundleExe = Join-Path $bundleDir "VxPlayer.exe"
+          if (-not (Test-Path $bundleExe)) { throw "PyInstaller did not create $bundleExe" }
+          Copy-Item dist\VxPlayerUpdater.exe (Join-Path $bundleDir "VxPlayerUpdater.exe")
+          $vlcBundle = Join-Path $bundleDir "vlc"
+          New-Item -ItemType Directory -Path $vlcBundle -Force | Out-Null
+          Copy-Item (Join-Path $vlc "*") $vlcBundle -Recurse
+          $bundleCheck = Start-Process `
+            -FilePath $bundleExe `
+            -ArgumentList @("--check-libvlc") `
+            -Wait -PassThru
+          if ($bundleCheck.ExitCode -ne 0) { throw "Bundled LibVLC smoke test failed with exit code $($bundleCheck.ExitCode)" }
+
+          python scripts\package_updates.py prepare `
+            --bundle-dir $bundleDir `
+            --output-dir $env:RUNNER_TEMP `
+            --version $env:VXPLAYER_VERSION
+          if ($LASTEXITCODE -ne 0) { throw "Could not create update archives." }
+
           Compress-Archive `
-            -Path "$env:RUNNER_TEMP\VxPlayer.exe", "README.md", "LICENSE" `
+            -Path "$bundleDir\*" `
             -DestinationPath "$env:RUNNER_TEMP\VxPlayer-windows-x64.zip" `
             -CompressionLevel Optimal
           $payloadPath = Join-Path $env:RUNNER_TEMP "VxPlayer-windows-x64.zip"
           $payloadHash = (Get-FileHash $payloadPath -Algorithm SHA256).Hash.ToLowerInvariant()
           $payloadSize = (Get-Item $payloadPath).Length
-          $bundleCheck = Start-Process `
-            -FilePath (Join-Path $env:RUNNER_TEMP "VxPlayer.exe") `
-            -ArgumentList @("--check-libvlc") `
-            -Wait -PassThru
-          if ($bundleCheck.ExitCode -ne 0) { throw "Bundled LibVLC smoke test failed with exit code $($bundleCheck.ExitCode)" }
           $isccCommand = Get-Command ISCC.exe -ErrorAction SilentlyContinue
           if ($isccCommand) {
             $iscc = $isccCommand.Source
@@ -132,6 +149,16 @@ jobs:
             Get-Content $installerLog -Tail 80
             throw "Installer did not install VxPlayer.exe into $installDir"
           }
+          foreach ($requiredPath in @(
+            (Join-Path $installDir "VxPlayerUpdater.exe"),
+            (Join-Path $installDir "VxPlayer-install.json"),
+            (Join-Path $installDir "vlc\libvlc.dll"),
+            (Join-Path $installDir "_internal\assets\style.qss")
+          )) {
+            if (-not (Test-Path -LiteralPath $requiredPath)) {
+              throw "The installer is missing a required application module: $requiredPath"
+            }
+          }
           $installedCheck = Start-Process `
             -FilePath $installedExe `
             -ArgumentList @("--check-libvlc") `
@@ -161,14 +188,16 @@ jobs:
           $installerPath = Join-Path $env:RUNNER_TEMP "VxPlayer-Setup.exe"
           if ((Get-Item $installerPath).Length -gt 10MB) { throw "Online installer exceeded the 10 MB size limit" }
           $installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
-          $manifest = @{
-            version = $env:VXPLAYER_VERSION
-            tag = if ($env:GITHUB_REF_TYPE -eq "tag") { $env:GITHUB_REF_NAME } else { "continuous" }
-            installer = "VxPlayer-Setup.exe"
-            sha256 = $installerHash
-            commit = $env:GITHUB_SHA
-          } | ConvertTo-Json
-          Set-Content -Path (Join-Path $env:RUNNER_TEMP "VxPlayer-update.json") -Value $manifest -Encoding Ascii
+          if ($env:GITHUB_REF_TYPE -eq "tag") { $releaseTag = $env:GITHUB_REF_NAME } else { $releaseTag = "continuous" }
+          python scripts\package_updates.py manifest `
+            --index "$env:RUNNER_TEMP\VxPlayer-package-index.json" `
+            --output "$env:RUNNER_TEMP\VxPlayer-update.json" `
+            --version $env:VXPLAYER_VERSION `
+            --tag $releaseTag `
+            --installer-sha256 $installerHash `
+            --commit $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { throw "Could not create the update manifest." }
+          Remove-Item "$env:RUNNER_TEMP\VxPlayer-package-index.json"
       - name: Package Linux executable
         if: runner.os == 'Linux'
         run: |

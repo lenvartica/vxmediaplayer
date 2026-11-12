@@ -7,7 +7,10 @@ import sys
 
 if getattr(sys, "frozen", False) and os.name == "nt":
     bundle_dir = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
-    vlc_dir = os.path.join(bundle_dir, "vlc")
+    app_dir = os.path.dirname(sys.executable)
+    vlc_dir = os.path.join(app_dir, "vlc")
+    if not os.path.isdir(vlc_dir):
+        vlc_dir = os.path.join(bundle_dir, "vlc")
     if not os.path.isdir(vlc_dir):
         vlc_dir = bundle_dir
     libvlc_path = os.path.join(vlc_dir, "libvlc.dll")
